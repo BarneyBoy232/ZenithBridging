@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { buildBridge } from './engine/build.js';
 import { queryToParams, writeQuery } from './state/urlState.js';
 import ControlPanel from './components/ControlPanel.jsx';
+import Logo from './components/Logo.jsx';
 import PlanView from './components/PlanView.jsx';
 import SummaryPanel from './components/SummaryPanel.jsx';
 import './App.css';
@@ -39,9 +40,9 @@ export default function App() {
     <div className="app">
       <header className="app-header">
         <div className="brand">
-          <span className="brand-mark" aria-hidden="true" />
-          <div>
-            <h1>Bridge Builder</h1>
+          <Logo height={26} />
+          <div className="brand-text">
+            <h1>Zenith Bridging</h1>
             <p>Two coordinates in. A buildable bridge out.</p>
           </div>
         </div>

@@ -16,18 +16,18 @@
 .brand {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
 
-.brand-mark {
-  width: 30px;
-  height: 30px;
-  border-radius: 7px;
-  background: linear-gradient(140deg, var(--accent), #8a6bff);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+/* The mark inherits its colour from here, and the one accent block picks up
+   --logo-accent. Both stay in step with whatever the theme becomes. */
+.logo {
+  display: block;
+  color: var(--text);
+  --logo-accent: var(--accent);
 }
 
-.app-header h1 {
+.brand-text h1 {
   margin: 0;
   font-size: 16px;
   letter-spacing: -0.01em;
