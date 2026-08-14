@@ -1,4 +1,4 @@
-/** The numbers, the materials, and whatever shortcut the bridge offers. */
+/** The numbers, the materials, and whatever shortcut the build offers. */
 
 const MATERIALS = [
   { key: 'full', label: 'Full blocks' },
@@ -64,18 +64,31 @@ function Shortcut({ model }) {
 
 export default function SummaryPanel({ model }) {
   const { stats } = model;
+  const isBridge = model.kind === 'bridge';
 
   return (
     <div className="panel summary">
       <section>
-        <h2>The bridge</h2>
+        <h2>{isBridge ? 'The bridge' : 'The path'}</h2>
         <div className="stat-grid">
-          <Stat label="Rows" value={stats.rowCount} note={`${model.width} wide`} />
-          <Stat label="Blocks" value={stats.blockCount.toLocaleString()} note={stacks(stats.blockCount)} />
-          <Stat label="Span" value={`${stats.horizontalSpan} blocks`} note="across the ground" />
-          <Stat label="Slope" value={`${stats.slopePercent}%`} note={`${stats.minY} to ${stats.maxY} y`} />
+          {isBridge ? (
+            <>
+              <Stat label="Rows" value={stats.rowCount} note={`${stats.width} wide`} />
+              <Stat label="Blocks" value={stats.blockCount.toLocaleString()} note={stacks(stats.blockCount)} />
+              <Stat label="Span" value={`${stats.horizontalSpan} blocks`} note="across the ground" />
+              <Stat label="Slope" value={`${stats.slopePercent}%`} note={`${stats.minY} to ${stats.maxY} y`} />
+            </>
+          ) : (
+            <>
+              <Stat label="Points" value={stats.pointCount} note={`${stats.width} wide`} />
+              <Stat label="Blocks" value={stats.blockCount.toLocaleString()} note={stacks(stats.blockCount)} />
+              <Stat label="Length" value={`${stats.trueLength} blocks`} note="along the curve" />
+              <Stat label="Height" value={`${stats.heightRange} blocks`} note={`${stats.minY} to ${stats.maxY} y`} />
+            </>
+          )}
         </div>
-        {stats.peakDeviation !== 0 && (
+
+        {isBridge && stats.peakDeviation !== 0 && (
           <p className="hint">
             {stats.peakDeviation < 0 ? 'Hangs' : 'Arches'}{' '}
             <strong>{Math.abs(stats.peakDeviation)} blocks</strong>{' '}
@@ -83,12 +96,20 @@ export default function SummaryPanel({ model }) {
             {Math.round(stats.peakDeviationAt * 100)}% of the way along.
           </p>
         )}
+
+        {!isBridge && (
+          <p className="hint">
+            Box is <strong>{stats.boxSize.x} × {stats.boxSize.y} × {stats.boxSize.z}</strong> blocks.
+          </p>
+        )}
       </section>
 
-      <section>
-        <h2>Shortcut</h2>
-        <Shortcut model={model} />
-      </section>
+      {isBridge && (
+        <section>
+          <h2>Shortcut</h2>
+          <Shortcut model={model} />
+        </section>
+      )}
 
       <section>
         <h2>Materials</h2>

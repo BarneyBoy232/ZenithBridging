@@ -9,7 +9,7 @@
  *   segment   which parts of it repeat, mirror, or run on unchanged
  */
 
-import { BridgeError, heightResolution, rowBlockCount, rowWidth } from './model.js';
+import { BridgeError, heightResolution, rowBlockCount, rowBlocks, rowWidth } from './model.js';
 import { planPath } from './path.js';
 import { applyWidth } from './width.js';
 import { deckLevels } from './curve.js';
@@ -201,6 +201,7 @@ export function buildBridge(userParams) {
   }
 
   return {
+    kind: 'bridge',
     params,
     majorAxis: path.majorAxis,
     minorAxis: path.minorAxis,
@@ -211,6 +212,19 @@ export function buildBridge(userParams) {
     rows,
     segments,
     warnings,
+    /**
+     * Views walk the blocks through here, so the straight tool and the curved
+     * one look identical to them. Rows are only expanded as they are visited,
+     * which is what keeps a very long bridge cheap.
+     */
+    eachBlock(stride, fn) {
+      let n = 0;
+      for (const row of rows) {
+        for (const block of rowBlocks({ majorAxis: path.majorAxis }, row)) {
+          if (n++ % stride === 0) fn(block);
+        }
+      }
+    },
     stats: {
       rowCount: rows.length,
       blockCount,

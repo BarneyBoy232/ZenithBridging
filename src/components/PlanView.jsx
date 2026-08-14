@@ -14,7 +14,6 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { levelColour } from './colour.js';
-import { rowBlocks } from '../engine/model.js';
 
 export const PLANES = {
   top: { id: 'top', label: 'Top', across: 'X', down: 'Z' },
@@ -42,49 +41,45 @@ function project(model, plane) {
   let minV = Infinity;
   let maxV = -Infinity;
 
-  for (let i = 0; i < model.rows.length; i += stride) {
-    const row = model.rows[i];
-    for (const block of rowBlocks(model, row)) {
-      let h;
-      let v;
-      let nearness;
-      if (plane === 'top') {
-        h = block.x;
-        v = block.z;
-        nearness = block.y; // looking down: the highest block wins
-      } else if (plane === 'front') {
-        h = block.x;
-        v = -block.y; // screens count downward, worlds count upward
-        nearness = -block.z;
-      } else {
-        h = block.z;
-        v = -block.y;
-        nearness = block.x;
-      }
-
-      if (h < minH) minH = h;
-      if (h > maxH) maxH = h;
-      if (v < minV) minV = v;
-      if (v > maxV) maxV = v;
-
-      const key = `${h},${v}`;
-      const existing = cells.get(key);
-      if (!existing || nearness > existing.nearness) {
-        cells.set(key, {
-          h,
-          v,
-          nearness,
-          colour: levelColour(block.y, minY, maxY),
-          kind: block.kind,
-          facing: block.facing,
-          y: block.y,
-          x: block.x,
-          z: block.z,
-          row: row.i,
-        });
-      }
+  model.eachBlock(stride, (block) => {
+    let h;
+    let v;
+    let nearness;
+    if (plane === 'top') {
+      h = block.x;
+      v = block.z;
+      nearness = block.y; // looking down: the highest block wins
+    } else if (plane === 'front') {
+      h = block.x;
+      v = -block.y; // screens count downward, worlds count upward
+      nearness = -block.z;
+    } else {
+      h = block.z;
+      v = -block.y;
+      nearness = block.x;
     }
-  }
+
+    if (h < minH) minH = h;
+    if (h > maxH) maxH = h;
+    if (v < minV) minV = v;
+    if (v > maxV) maxV = v;
+
+    const key = `${h},${v}`;
+    const existing = cells.get(key);
+    if (!existing || nearness > existing.nearness) {
+      cells.set(key, {
+        h,
+        v,
+        nearness,
+        colour: levelColour(block.y, minY, maxY),
+        kind: block.kind,
+        facing: block.facing,
+        y: block.y,
+        x: block.x,
+        z: block.z,
+      });
+    }
+  });
 
   return {
     cells,
@@ -325,8 +320,7 @@ export default function PlanView({ model, plane = 'top' }) {
                 ? `stair, rising ${hover.facing}`
                 : hover.kind === 'slab'
                   ? 'bottom slab'
-                  : 'full block'}{' '}
-              · row {hover.row + 1}
+                  : 'full block'}
             </span>
           </>
         ) : (

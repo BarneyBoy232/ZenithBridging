@@ -13,10 +13,52 @@
   padding: 12px 20px;
 }
 
+.app-header > .brand-text p {
+  margin: 0;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
 .brand {
   display: flex;
   align-items: center;
   gap: 14px;
+}
+
+.tool-switch {
+  display: flex;
+  gap: 2px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.row-remove {
+  width: 20px;
+  flex: none;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 0 6px;
+  cursor: pointer;
+}
+
+.row-remove:disabled {
+  opacity: 0;
+  cursor: default;
+}
+
+.row-remove:hover:not(:disabled) {
+  color: var(--warn);
 }
 
 /* The mark inherits its colour from here, and the one accent block picks up

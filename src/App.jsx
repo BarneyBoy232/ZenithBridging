@@ -1,10 +1,12 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { buildBridge, smoothSagLimit } from './engine/build.js';
+import { buildTrack, resolveBox } from './engine/splineTrack.js';
 import { queryToParams, writeQuery } from './state/urlState.js';
 import ControlPanel from './components/ControlPanel.jsx';
 import Logo from './components/Logo.jsx';
 import PlanView, { PLANES } from './components/PlanView.jsx';
 import SummaryPanel from './components/SummaryPanel.jsx';
+import TrackPanel from './components/TrackPanel.jsx';
 import './App.css';
 
 // The 3D library is by far the biggest thing here, and most visits never open
@@ -17,33 +19,54 @@ const VIEWS = [
   { id: '3d', label: '3D', flat: false },
 ];
 
+const TOOLS = [
+  { id: 'bridge', label: 'Straight bridge' },
+  { id: 'track', label: 'Curved path' },
+];
+
 export default function App() {
-  // Settings come from the address bar, so a link restores an exact bridge.
-  const [params, setParams] = useState(() => queryToParams(location.search));
+  // Settings come from the address bar, so a link restores an exact build.
+  const [state, setState] = useState(() => queryToParams(location.search));
   const [view, setView] = useState('top');
 
   useEffect(() => {
-    writeQuery(params);
-  }, [params]);
+    writeQuery(state);
+  }, [state]);
+
+  const { tool } = state;
+  const params = tool === 'bridge' ? state.bridge : state.track;
+  const setParams = (next) => setState((s) => ({ ...s, [tool]: next }));
 
   // Rebuilding is fast enough to do on every keystroke — a 5000-block bridge
   // takes about ten milliseconds.
   const { model, error } = useMemo(() => {
     try {
-      return { model: buildBridge(params), error: null };
+      return {
+        model: tool === 'bridge' ? buildBridge(state.bridge) : buildTrack(state.track),
+        error: null,
+      };
     } catch (e) {
       return { model: null, error: e.message };
     }
-  }, [params]);
+  }, [tool, state.bridge, state.track]);
 
   // How deep the sag can go before the blocks stop being able to follow it.
   const sagLimit = useMemo(() => {
+    if (tool !== 'bridge') return null;
     try {
-      return smoothSagLimit(params);
+      return smoothSagLimit(state.bridge);
     } catch {
       return null;
     }
-  }, [params]);
+  }, [tool, state.bridge]);
+
+  const box = useMemo(() => {
+    try {
+      return resolveBox(state.track);
+    } catch {
+      return null;
+    }
+  }, [state.track]);
 
   const active = VIEWS.find((v) => v.id === view);
 
@@ -57,10 +80,27 @@ export default function App() {
             <p>Two coordinates in. A buildable bridge out.</p>
           </div>
         </div>
+
+        <div className="tool-switch">
+          {TOOLS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              className={tool === t.id ? 'tab active' : 'tab'}
+              onClick={() => setState((s) => ({ ...s, tool: t.id }))}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
       </header>
 
       <main className="app-body">
-        <ControlPanel params={params} setParams={setParams} sagLimit={sagLimit} />
+        {tool === 'bridge' ? (
+          <ControlPanel params={params} setParams={setParams} sagLimit={sagLimit} />
+        ) : (
+          <TrackPanel params={params} setParams={setParams} box={box} />
+        )}
 
         <div className="stage">
           {model ? (
@@ -68,7 +108,7 @@ export default function App() {
               {/* Only the active view is mounted — a 3D scene left running in
                   the background costs frames for nothing. */}
               {active.flat ? (
-                <PlanView key={view} model={model} plane={view} />
+                <PlanView key={`${tool}-${view}`} model={model} plane={view} />
               ) : (
                 <Suspense fallback={<div className="empty-state">Loading the 3D view…</div>}>
                   <Preview3D model={model} />

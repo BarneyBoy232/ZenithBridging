@@ -10,6 +10,7 @@ import { buildBridge, smoothSagLimit } from '../src/engine/build.js';
 import { BridgeError, rowBlockCount } from '../src/engine/model.js';
 import { surfaceTop } from '../src/engine/quantise.js';
 import { buildInstances, INSTANCE_BUDGET, STEP_OFFSET } from '../src/engine/instances.js';
+import { buildTrack } from '../src/engine/splineTrack.js';
 
 let passed = 0;
 let failed = 0;
@@ -641,6 +642,166 @@ heading('13. The deck is never full of holes');
   });
   check('slabs and stairs can be used together', bothOptions.stats.counts.slab > 0);
   check('and both actually appear', bothOptions.stats.counts.stair > 0);
+}
+
+// ------------------------------------------------------------ curved paths
+heading('14. Curved paths follow the spline and stay solid');
+{
+  const straightish = {
+    points: [
+      { x: 0, y: 64, z: 0 },
+      { x: 30, y: 64, z: 18 },
+      { x: 64, y: 64, z: 0 },
+    ],
+    width: 4,
+    useSlabs: true,
+  };
+  const t = buildTrack(straightish);
+
+  check('it produces blocks', t.stats.blockCount > 0);
+  check('it reports the same shape of stats as a bridge', 'counts' in t.stats && 'minY' in t.stats);
+
+  // The whole promise of this spline: it goes THROUGH the points you type.
+  const hasBlockNear = (p, radius) =>
+    t.blocks.some(
+      (b) => Math.abs(b.x - p.x) <= radius && Math.abs(b.z - p.z) <= radius && Math.abs(b.y - p.y) <= 1
+    );
+  check('the path runs through the start', hasBlockNear(straightish.points[0], 1));
+  check('the path runs through the middle point', hasBlockNear(straightish.points[1], 1));
+  check('the path runs through the finish', hasBlockNear(straightish.points[2], 1));
+
+  // A curve is only a curve if it leaves the straight line between the ends.
+  const offLine = t.blocks.some((b) => {
+    const tt = b.x / 64;
+    return Math.abs(b.z - tt * 0) > 6;
+  });
+  check('it actually curves away from the straight route', offLine);
+
+  // No pinholes: every deck block must touch another one.
+  const occupied = new Set(t.blocks.map((b) => `${b.x},${b.y},${b.z}`));
+  let orphans = 0;
+  for (const b of t.blocks) {
+    let neighbours = 0;
+    for (let dx = -1; dx <= 1; dx++)
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dz = -1; dz <= 1; dz++) {
+          if (!dx && !dy && !dz) continue;
+          if (occupied.has(`${b.x + dx},${b.y + dy},${b.z + dz}`)) neighbours++;
+        }
+    if (neighbours === 0) orphans++;
+  }
+  check('no block is left floating on its own', orphans === 0, `${orphans} orphans`);
+
+  // Width has to hold up on a corner, not pinch in.
+  const widthAt = (x) => new Set(t.blocks.filter((b) => b.x === x).map((b) => b.z)).size;
+  const straightWidth = widthAt(2);
+  const cornerWidth = widthAt(30);
+  check(
+    'the deck keeps its width around the corner',
+    cornerWidth >= straightWidth - 1,
+    `straight ${straightWidth} vs corner ${cornerWidth}`
+  );
+
+  // A climbing, curving path is where holes would appear if anywhere.
+  const hilly = buildTrack({
+    points: [
+      { x: 0, y: 64, z: 0 },
+      { x: 20, y: 84, z: 25 },
+      { x: 45, y: 70, z: -10 },
+      { x: 70, y: 95, z: 20 },
+    ],
+    width: 3,
+    useSlabs: true,
+  });
+  const hillyOccupied = new Set(hilly.blocks.map((b) => `${b.x},${b.y},${b.z}`));
+  let hillyOrphans = 0;
+  for (const b of hilly.blocks) {
+    let n = 0;
+    for (let dx = -1; dx <= 1; dx++)
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dz = -1; dz <= 1; dz++) {
+          if (!dx && !dy && !dz) continue;
+          if (hillyOccupied.has(`${b.x + dx},${b.y + dy},${b.z + dz}`)) n++;
+        }
+    if (n === 0) hillyOrphans++;
+  }
+  check('a steep winding path has no floating blocks either', hillyOrphans === 0, `${hillyOrphans}`);
+  check('it climbs and descends', hilly.stats.heightRange > 20, `${hilly.stats.heightRange}`);
+
+  // The box.
+  const boxed = buildTrack({
+    points: [
+      { x: 0, y: 64, z: 0 },
+      { x: 40, y: 64, z: 60 },
+      { x: 80, y: 64, z: 0 },
+    ],
+    width: 3,
+    box: { min: { x: 0, y: 60, z: 0 }, max: { x: 80, y: 70, z: 20 } },
+  });
+  check(
+    'control points are pulled inside the box',
+    boxed.params.points.every(
+      (p) => p.x >= 0 && p.x <= 80 && p.y >= 60 && p.y <= 70 && p.z >= 0 && p.z <= 20
+    ),
+    JSON.stringify(boxed.params.points)
+  );
+  check('and the box is reported back', boxed.box.max.z === 20);
+  check(
+    'a box derived from the points contains them all',
+    (() => {
+      const auto = buildTrack(straightish);
+      return straightish.points.every(
+        (p) =>
+          p.x >= auto.box.min.x &&
+          p.x <= auto.box.max.x &&
+          p.z >= auto.box.min.z &&
+          p.z <= auto.box.max.z
+      );
+    })()
+  );
+
+  // Two points and no curve is still a valid path.
+  const simple = buildTrack({
+    points: [
+      { x: 0, y: 64, z: 0 },
+      { x: 25, y: 64, z: 0 },
+    ],
+    width: 3,
+  });
+  check('a two-point path is just a straight run', simple.stats.blockCount > 0);
+  check('and it stays on one line', new Set(simple.blocks.map((b) => b.z)).size === 3);
+
+  // Bad input.
+  let err = null;
+  try {
+    buildTrack({ points: [{ x: 0, y: 64, z: 0 }], width: 3 });
+  } catch (e) {
+    err = e;
+  }
+  check('a single point is rejected clearly', err instanceof BridgeError);
+
+  // Both tools have to look the same to the views.
+  const bridge = buildBridge({ start: { x: 0, y: 64, z: 0 }, end: { x: 20, y: 64, z: 8 } });
+  for (const [name, m] of [['bridge', bridge], ['track', t]]) {
+    let seen = 0;
+    m.eachBlock(1, (b) => {
+      if (Number.isFinite(b.x) && Number.isFinite(b.y) && Number.isFinite(b.z) && b.kind) seen++;
+    });
+    check(`${name}: walks its blocks through one shared interface`, seen === m.stats.blockCount, `${seen}`);
+
+    const inst = buildInstances(m);
+    check(
+      `${name}: the 3D preview builds boxes for it`,
+      inst.full.length + inst.slab.length === m.stats.blockCount
+    );
+    check(`${name}: with finite bounds`, Number.isFinite(inst.bounds.minX));
+  }
+  check('only the straight tool draws a no-sag comparison line', !!buildInstances(bridge).chord && !buildInstances(t).chord);
+
+  console.log(
+    `        ${t.stats.blockCount} blocks over ${t.stats.trueLength} blocks of curve, ` +
+      `box ${t.stats.boxSize.x}x${t.stats.boxSize.y}x${t.stats.boxSize.z}`
+  );
 }
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

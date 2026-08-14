@@ -143,7 +143,7 @@ function Scene({ instances, frameKey }) {
       <Boxes items={stepX} size={[0.5, 0.5, 1]} />
       <Boxes items={stepZ} size={[1, 0.5, 0.5]} />
 
-      <Chord points={chord} />
+      {chord && <Chord points={chord} />}
 
       <OrbitControls makeDefault enableDamping dampingFactor={0.12} />
       <FrameBridge bounds={bounds} frameKey={frameKey} />
@@ -158,10 +158,12 @@ export default function Preview3D({ model }) {
   const [stalled, setStalled] = useState(false);
   const instances = useMemo(() => buildInstances(model), [model]);
 
-  // What counts as "a different bridge" for the purpose of re-aiming the
+  // What counts as "a different build" for the purpose of re-aiming the
   // camera: where it runs and how wide it is. Not how it curves.
-  const { start, end } = model.params;
-  const frameKey = `${start.x},${start.y},${start.z}|${end.x},${end.y},${end.z}|${model.width}`;
+  const frameKey =
+    model.kind === 'bridge'
+      ? `${JSON.stringify(model.params.start)}|${JSON.stringify(model.params.end)}|${model.width}`
+      : `${model.params.points.map((p) => `${p.x},${p.y},${p.z}`).join(';')}|${model.stats.width}`;
 
   // The 3D canvas only starts up once its container has a real size. If the
   // tab is in the background when this mounts, that can take a moment — so we
