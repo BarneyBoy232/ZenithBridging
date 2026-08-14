@@ -37,6 +37,7 @@ export function findExactTile(cells, rows) {
       if (
         cells[i + p].minor - cells[i].minor !== shiftMinor ||
         rows[i + p].y - rows[i].y !== shiftY ||
+        rows[i + p].bottom - rows[i].bottom !== shiftY ||
         rows[i + p].kind !== rows[i].kind ||
         rows[i + p].facing !== rows[i].facing
       ) {
@@ -109,13 +110,25 @@ export function runLengthRows(rows) {
 
   rows.forEach((row, i) => {
     const same =
-      current && current.y === row.y && current.kind === row.kind && current.facing === row.facing;
+      current &&
+      current.y === row.y &&
+      current.bottom === row.bottom &&
+      current.kind === row.kind &&
+      current.facing === row.facing;
 
     if (same) {
       current.end = i;
       current.count++;
     } else {
-      current = { start: i, end: i, count: 1, y: row.y, kind: row.kind, facing: row.facing };
+      current = {
+        start: i,
+        end: i,
+        count: 1,
+        y: row.y,
+        bottom: row.bottom,
+        kind: row.kind,
+        facing: row.facing,
+      };
       runs.push(current);
     }
   });

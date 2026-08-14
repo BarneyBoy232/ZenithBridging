@@ -80,13 +80,21 @@ function Chord({ points }) {
  * swing the view back to the world origin, and the bridge would vanish off
  * screen — which looks exactly like nothing having rendered at all.
  */
-function FrameBridge({ bounds }) {
+function FrameBridge({ bounds, frameKey }) {
   const camera = useThree((s) => s.camera);
   const controls = useThree((s) => s.controls);
   const size = useThree((s) => s.size);
+  const lastKey = useRef(null);
 
   useEffect(() => {
     if (!controls || !size.width) return;
+
+    // Only re-aim the camera when the bridge genuinely moves — new endpoints,
+    // a new width. Changing the curve, the sag or the block options must leave
+    // the view exactly where it was dragged to, because that is the whole
+    // point of adjusting them: you are watching one spot while you do it.
+    if (lastKey.current === frameKey) return;
+    lastKey.current = frameKey;
 
     const centre = new THREE.Vector3(
       (bounds.minX + bounds.maxX) / 2,
@@ -115,12 +123,12 @@ function FrameBridge({ bounds }) {
 
     controls.target.copy(centre);
     controls.update();
-  }, [bounds, camera, controls, size.width, size.height]);
+  }, [bounds, frameKey, camera, controls, size.width, size.height]);
 
   return null;
 }
 
-function Scene({ instances }) {
+function Scene({ instances, frameKey }) {
   const { full, slab, stepX, stepZ, bounds, chord } = instances;
 
   return (
@@ -138,7 +146,7 @@ function Scene({ instances }) {
       <Chord points={chord} />
 
       <OrbitControls makeDefault enableDamping dampingFactor={0.12} />
-      <FrameBridge bounds={bounds} />
+      <FrameBridge bounds={bounds} frameKey={frameKey} />
     </>
   );
 }
@@ -149,6 +157,11 @@ export default function Preview3D({ model }) {
   const [started, setStarted] = useState(false);
   const [stalled, setStalled] = useState(false);
   const instances = useMemo(() => buildInstances(model), [model]);
+
+  // What counts as "a different bridge" for the purpose of re-aiming the
+  // camera: where it runs and how wide it is. Not how it curves.
+  const { start, end } = model.params;
+  const frameKey = `${start.x},${start.y},${start.z}|${end.x},${end.y},${end.z}|${model.width}`;
 
   // The 3D canvas only starts up once its container has a real size. If the
   // tab is in the background when this mounts, that can take a moment — so we
@@ -194,7 +207,7 @@ export default function Preview3D({ model }) {
           dpr={[1, 2]}
           onCreated={() => setStarted(true)}
         >
-          <Scene instances={instances} />
+          <Scene instances={instances} frameKey={frameKey} />
         </Canvas>
       )}
 

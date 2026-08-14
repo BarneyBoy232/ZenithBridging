@@ -6,8 +6,8 @@
  * the engine has to be provably right before any of it is drawn on screen.
  */
 
-import { buildBridge } from '../src/engine/build.js';
-import { BridgeError, rowWidth } from '../src/engine/model.js';
+import { buildBridge, smoothSagLimit } from '../src/engine/build.js';
+import { BridgeError, rowBlockCount } from '../src/engine/model.js';
 import { surfaceTop } from '../src/engine/quantise.js';
 import { buildInstances, INSTANCE_BUDGET, STEP_OFFSET } from '../src/engine/instances.js';
 
@@ -31,7 +31,7 @@ function heading(text) {
 
 /** Block count taken the slow, obvious way, to cross-check the fast way. */
 function bruteForceBlockCount(model) {
-  return model.rows.reduce((sum, row) => sum + rowWidth(row), 0);
+  return model.rows.reduce((sum, row) => sum + rowBlockCount(row), 0);
 }
 
 // ---------------------------------------------------------------- axis-aligned
@@ -42,13 +42,13 @@ heading('1. Axis-aligned, no sag  (0,64,0) -> (0,64,20), width 3');
     end: { x: 0, y: 64, z: 20 },
     width: 3,
     sag: 0,
-    blockMode: 'full',
+    useSlabs: false, useStairs: false,
   });
   check('21 rows', m.stats.rowCount === 21, `got ${m.stats.rowCount}`);
   check('63 blocks', m.stats.blockCount === 63, `got ${m.stats.blockCount}`);
   check('all at y=64', m.rows.every((r) => r.y === 64));
   check('all full blocks', m.rows.every((r) => r.kind === 'full'));
-  check('deck spans z, 3 wide', m.rows.every((r) => rowWidth(r) === 3));
+  check('deck spans z, 3 wide', m.rows.every((r) => rowBlockCount(r) === 3));
   check('no sideways drift', new Set(m.rows.map((r) => r.minorStart)).size === 1);
   check('exact tile found', !!m.segments.tile, JSON.stringify(m.segments.tile));
   check('tile is 1 row x 20', m.segments.tile?.length === 1 && m.segments.tile?.repeats === 20);
@@ -63,7 +63,7 @@ heading('2. Clean diagonal, no sag  (0,64,0) -> (40,64,15), width 1');
     end: { x: 40, y: 64, z: 15 },
     width: 1,
     sag: 0,
-    blockMode: 'full',
+    useSlabs: false, useStairs: false,
   });
   check('41 rows', m.stats.rowCount === 41, `got ${m.stats.rowCount}`);
   check('major axis is x', m.majorAxis === 'x');
@@ -92,7 +92,7 @@ heading('3. Coprime diagonal  (0,64,0) -> (37,64,11), width 2');
     end: { x: 37, y: 64, z: 11 },
     width: 2,
     sag: 0,
-    blockMode: 'full',
+    useSlabs: false, useStairs: false,
   });
   check('no exact tile', m.segments.tile === null, JSON.stringify(m.segments.tile));
   check('falls back to a real shortcut', m.segments.best !== 'none', m.segments.best);
@@ -110,9 +110,9 @@ heading('4. Sag of -6  (0,64,0) -> (40,64,15), width 3, all three block modes');
     sag: -6,
     curve: 'parabola',
   };
-  const full = buildBridge({ ...base, blockMode: 'full' });
-  const slabs = buildBridge({ ...base, blockMode: 'slabs' });
-  const stairs = buildBridge({ ...base, blockMode: 'stairs' });
+  const full = buildBridge({ ...base, useSlabs: false, useStairs: false });
+  const slabs = buildBridge({ ...base, useSlabs: true, useStairs: false });
+  const stairs = buildBridge({ ...base, useSlabs: false, useStairs: true });
 
   const tops = full.rows.map(surfaceTop);
   const lowest = Math.min(...tops);
@@ -162,7 +162,7 @@ heading('5. Arch of +6, same span');
     width: 3,
     sag: 6,
     curve: 'parabola',
-    blockMode: 'stairs',
+    useSlabs: false, useStairs: true,
   });
   const tops = m.rows.map(surfaceTop);
   const highest = Math.max(...tops);
@@ -182,14 +182,14 @@ heading('6. Sloped ends  (0,64,0) -> (30,80,12), width 4, sag -3');
     width: 4,
     sag: -3,
     curve: 'catenary',
-    blockMode: 'slabs',
+    useSlabs: true, useStairs: false,
   });
   check('starts at 64', m.rows[0].y === 64, `got ${m.rows[0].y}`);
   check('ends at 80', m.rows.at(-1).y === 80, `got ${m.rows.at(-1).y}`);
   check('climbs overall', m.rows.at(-1).y > m.rows[0].y);
   check('sag pulls the middle below the straight line', m.stats.peakDeviation < 0, `${m.stats.peakDeviation}`);
   check('not symmetric (ends differ in height)', m.segments.symmetric === false);
-  check('4 blocks per row', m.rows.every((r) => rowWidth(r) === 4));
+  check('4 blocks per row', m.rows.every((r) => rowBlockCount(r) === 4));
   check('count cross-check', bruteForceBlockCount(m) === m.stats.blockCount);
 }
 
@@ -223,7 +223,7 @@ heading('8. Scale  (0,64,0) -> (5000,64,1873), width 6');
     width: 6,
     sag: -20,
     curve: 'catenary',
-    blockMode: 'slabs',
+    useSlabs: true, useStairs: false,
   });
   const ms = Number(process.hrtime.bigint() - t0) / 1e6;
 
@@ -243,7 +243,7 @@ heading('9. Smallest possible bridges');
     end: { x: 1, y: 64, z: 0 },
     width: 1,
     sag: 0,
-    blockMode: 'full',
+    useSlabs: false, useStairs: false,
   });
   check('2 rows, 2 blocks', m.stats.rowCount === 2 && m.stats.blockCount === 2);
   check('does not crash on segment analysis', !!m.segments);
@@ -264,7 +264,7 @@ heading('10. All four diagonal directions behave the same');
       end: { x: dx, y: 64, z: dz },
       width: 3,
       sag: -5,
-      blockMode: 'slabs',
+      useSlabs: true, useStairs: false,
     });
     return m.stats.blockCount;
   });
@@ -287,7 +287,7 @@ heading('11. Sag hangs like a rope, measured straight down');
       width: 1,
       sag: -10,
       curve,
-      blockMode: 'slabs',
+      useSlabs: true, useStairs: false,
     });
     const dev = deviations(m);
     const worst = Math.min(...dev);
@@ -311,7 +311,7 @@ heading('11. Sag hangs like a rope, measured straight down');
     width: 1,
     sag: -10,
     curve: 'catenary',
-    blockMode: 'slabs',
+    useSlabs: true, useStairs: false,
   });
   const slopedDev = deviations(sloped);
   const worstSloped = Math.min(...slopedDev);
@@ -339,7 +339,7 @@ heading('11. Sag hangs like a rope, measured straight down');
     width: 1,
     sag: -10,
     curve: 'parabola',
-    blockMode: 'slabs',
+    useSlabs: true, useStairs: false,
   });
   const pDev = deviations(slopedParabola);
   check(
@@ -358,7 +358,7 @@ heading('11. Sag hangs like a rope, measured straight down');
     width: 1,
     sag: 10,
     curve: 'catenary',
-    blockMode: 'slabs',
+    useSlabs: true, useStairs: false,
   });
   const archDev = deviations(arch);
   check('arch: rises exactly 10 above the line', Math.abs(Math.max(...archDev) - 10) < 0.01);
@@ -371,7 +371,7 @@ heading('11. Sag hangs like a rope, measured straight down');
         width: 1,
         sag: -10,
         curve: 'catenary',
-        blockMode: 'slabs',
+        useSlabs: true, useStairs: false,
       })
     )[i]) < 1e-9)
   );
@@ -383,7 +383,7 @@ heading('11. Sag hangs like a rope, measured straight down');
     width: 1,
     sag: -10,
     curve: 'catenary',
-    blockMode: 'slabs',
+    useSlabs: true, useStairs: false,
   });
   const backward = buildBridge({
     start: { x: 60, y: 100, z: 0 },
@@ -391,7 +391,7 @@ heading('11. Sag hangs like a rope, measured straight down');
     width: 1,
     sag: -10,
     curve: 'catenary',
-    blockMode: 'slabs',
+    useSlabs: true, useStairs: false,
   });
   check(
     'entering the coordinates backwards gives the same bridge',
@@ -413,7 +413,7 @@ heading('12. 3D preview builds the right boxes in the right places');
     width: 3,
     sag: -6,
     curve: 'parabola',
-    blockMode: 'stairs',
+    useSlabs: false, useStairs: true,
   });
   const inst = buildInstances(m);
 
@@ -453,7 +453,7 @@ heading('12. 3D preview builds the right boxes in the right places');
     end: { x: 12000040, y: 200, z: -8400015 },
     width: 3,
     sag: -6,
-    blockMode: 'slabs',
+    useSlabs: true, useStairs: false,
   });
   const farInst = buildInstances(farAway);
   const farBoxes = [...farInst.full, ...farInst.slab];
@@ -510,7 +510,7 @@ heading('12. 3D preview builds the right boxes in the right places');
     end: { x: 60000, y: 64, z: 12000 },
     width: 8,
     sag: -30,
-    blockMode: 'slabs',
+    useSlabs: true, useStairs: false,
   });
   const thinned = buildInstances(huge);
   const drawn = thinned.full.length + thinned.slab.length;
@@ -520,6 +520,127 @@ heading('12. 3D preview builds the right boxes in the right places');
   console.log(
     `        ${huge.stats.blockCount.toLocaleString()} blocks -> ${drawn.toLocaleString()} boxes drawn (every ${thinned.stride}th row)`
   );
+}
+
+// -------------------------------------------------- no holes, and the sag cap
+heading('13. The deck is never full of holes');
+{
+  /** Two neighbouring columns leave a hole if neither reaches the other. */
+  const holes = (m) => {
+    let count = 0;
+    for (let i = 1; i < m.rows.length; i++) {
+      const a = m.rows[i - 1];
+      const b = m.rows[i];
+      const apart = Math.max(b.bottom - a.y, a.bottom - b.y);
+      if (apart > 1) count++;
+    }
+    return count;
+  };
+
+  // A sag far too deep for the span: exactly the case that used to tear open.
+  const steep = buildBridge({
+    start: { x: 0, y: 120, z: 0 },
+    end: { x: 24, y: 120, z: 0 },
+    width: 3,
+    sag: -40,
+    curve: 'parabola',
+    useSlabs: true,
+  });
+  check('a wildly oversagged bridge has no holes', holes(steep) === 0, `${holes(steep)} holes`);
+  check('and it says it packed the gaps', steep.stats.packingBlocks > 0);
+  check('and it warns that the curve outran the blocks', steep.warnings.length >= 1);
+  check('count cross-check with packing', bruteForceBlockCount(steep) === steep.stats.blockCount);
+  check(
+    'materials still add up once packed',
+    steep.stats.counts.full + steep.stats.counts.slab + steep.stats.counts.stair ===
+      steep.stats.blockCount
+  );
+
+  // A steep climb as well as a steep sag.
+  const both = buildBridge({
+    start: { x: 0, y: 60, z: 0 },
+    end: { x: 20, y: 140, z: 8 },
+    width: 2,
+    sag: -15,
+    useSlabs: true,
+    useStairs: true,
+  });
+  check('a steep climb with sag has no holes', holes(both) === 0, `${holes(both)} holes`);
+
+  // Gentle bridges must not be padded out for no reason.
+  const gentle = buildBridge({
+    start: { x: 0, y: 64, z: 0 },
+    end: { x: 80, y: 64, z: 30 },
+    width: 3,
+    sag: -4,
+    useSlabs: true,
+  });
+  check('a gentle bridge adds no packing at all', gentle.stats.packingBlocks === 0);
+  check('and stays one block thick', gentle.rows.every((r) => r.bottom === r.y));
+  check('and raises no warnings', gentle.warnings.length === 0, gentle.warnings.join(' | '));
+  check('no holes either', holes(gentle) === 0);
+
+  // The advertised limit has to be the truth, not a guess.
+  for (const useSlabs of [true, false]) {
+    const shape = {
+      start: { x: 0, y: 64, z: 0 },
+      end: { x: 60, y: 64, z: 20 },
+      width: 3,
+      curve: 'catenary',
+      useSlabs,
+    };
+    const limit = smoothSagLimit(shape);
+    const at = buildBridge({ ...shape, sag: -limit });
+    const past = buildBridge({ ...shape, sag: -(limit + 0.5) });
+    const label = useSlabs ? 'with slabs' : 'blocks only';
+
+    check(`${label}: a real limit is reported`, limit > 0, `limit ${limit}`);
+    check(
+      `${label}: at the limit every step fits the blocks`,
+      at.stats.steepestStep <= at.stats.resolution,
+      `step ${at.stats.steepestStep} vs ${at.stats.resolution}`
+    );
+    check(`${label}: at the limit nothing needs packing`, at.stats.packingBlocks === 0);
+    check(
+      `${label}: past the limit it goes chunky and says so`,
+      past.stats.steepestStep > past.stats.resolution && past.warnings.length > 0
+    );
+    check(`${label}: past the limit still has no holes`, holes(past) === 0);
+  }
+
+  const slabLimit = smoothSagLimit({
+    start: { x: 0, y: 64, z: 0 },
+    end: { x: 60, y: 64, z: 20 },
+    width: 3,
+    curve: 'catenary',
+    useSlabs: true,
+  });
+  const blockLimit = smoothSagLimit({
+    start: { x: 0, y: 64, z: 0 },
+    end: { x: 60, y: 64, z: 20 },
+    width: 3,
+    curve: 'catenary',
+    useSlabs: false,
+  });
+  check(
+    'blocks alone tolerate a deeper sag than slabs do',
+    blockLimit > slabLimit,
+    `blocks ${blockLimit} vs slabs ${slabLimit}`
+  );
+  console.log(`        slabs allow ${slabLimit}, blocks alone allow ${blockLimit}`);
+
+  // Slabs and stairs together must be allowed, and must do both jobs.
+  const bothOptions = buildBridge({
+    start: { x: 0, y: 64, z: 0 },
+    end: { x: 50, y: 64, z: 0 },
+    width: 3,
+    sag: -9,
+    curve: 'parabola',
+    useSlabs: true,
+    useStairs: true,
+  });
+  check('slabs and stairs can be used together', bothOptions.stats.counts.slab > 0);
+  check('and both actually appear', bothOptions.stats.counts.stair > 0);
 }
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

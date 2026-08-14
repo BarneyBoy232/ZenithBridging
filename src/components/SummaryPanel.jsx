@@ -1,6 +1,10 @@
 /** The numbers, the materials, and whatever shortcut the bridge offers. */
 
-import { blockVariants } from '../engine/blockNames.js';
+const MATERIALS = [
+  { key: 'full', label: 'Full blocks' },
+  { key: 'slab', label: 'Slabs' },
+  { key: 'stair', label: 'Stairs' },
+];
 
 function Stat({ label, value, note }) {
   return (
@@ -60,7 +64,6 @@ function Shortcut({ model }) {
 
 export default function SummaryPanel({ model }) {
   const { stats } = model;
-  const variants = blockVariants(model.params.block);
 
   return (
     <div className="panel summary">
@@ -90,31 +93,17 @@ export default function SummaryPanel({ model }) {
       <section>
         <h2>Materials</h2>
         <ul className="materials">
-          {stats.counts.full > 0 && (
-            <li>
-              <code>{variants.full}</code>
-              <span>{stats.counts.full.toLocaleString()}</span>
-              <em>{stacks(stats.counts.full)}</em>
+          {MATERIALS.filter((m) => stats.counts[m.key] > 0).map((m) => (
+            <li key={m.key}>
+              <code>{m.label}</code>
+              <span>{stats.counts[m.key].toLocaleString()}</span>
+              <em>{stacks(stats.counts[m.key])}</em>
             </li>
-          )}
-          {stats.counts.slab > 0 && (
-            <li>
-              <code>{variants.slab}</code>
-              <span>{stats.counts.slab.toLocaleString()}</span>
-              <em>{stacks(stats.counts.slab)}</em>
-            </li>
-          )}
-          {stats.counts.stair > 0 && (
-            <li>
-              <code>{variants.stair}</code>
-              <span>{stats.counts.stair.toLocaleString()}</span>
-              <em>{stacks(stats.counts.stair)}</em>
-            </li>
-          )}
+          ))}
         </ul>
         <p className="hint">
-          Names are worked out from the block you typed. Not every block has a slab or stair version — if one
-          of these does not exist in your version, pick a different block.
+          Build it from whatever you like — the shape is the same in any material. Slabs and stairs have to
+          match whatever you use for the deck.
         </p>
       </section>
 

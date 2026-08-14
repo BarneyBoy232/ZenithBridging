@@ -20,37 +20,34 @@ export class BridgeError extends Error {
 }
 
 /**
- * How much vertical detail each block mode can represent.
+ * The two extras you can allow on top of full blocks. Both are independent
+ * tick boxes, because they do different jobs:
  *
- * `step` is the smallest height change the mode can express. Slabs halve it,
- * which is why they read as twice as smooth. Stairs do not add height detail —
- * they only smooth a whole-block step into a ramp — so stair mode stays on
- * whole levels. Mixing the two does not line up: a stair spans exactly one
- * block of height, so it cannot bridge a half-block change.
+ *  - Slabs halve the height of a step, so the curve can be twice as fine.
+ *  - Stairs ramp a whole-block step, so it is smooth to walk and to look at.
+ *
+ * Neither changes what the bridge *is*, only how finely it can follow the
+ * curve. Allowing slabs does not force half steps — where the curve is too
+ * steep for a half step, a whole block is used and the deck simply gets
+ * chunkier, which is the correct outcome rather than an error.
  */
-export const BLOCK_MODES = {
-  full: {
-    id: 'full',
-    label: 'Full blocks only',
-    hint: 'Chunky, stepped. Buildable with one material.',
-    step: 1,
-    stairs: false,
-  },
+export const BLOCK_OPTIONS = {
   slabs: {
-    id: 'slabs',
-    label: 'Blocks + slabs',
-    hint: 'Half-block height detail. Twice as smooth a curve.',
-    step: 0.5,
-    stairs: false,
+    id: 'useSlabs',
+    label: 'Allow slabs',
+    hint: 'Half-height steps, so the curve is twice as smooth.',
   },
   stairs: {
-    id: 'stairs',
-    label: 'Blocks + stairs',
-    hint: 'Whole-block heights, but every step ramped. Smoothest to walk and look at.',
-    step: 1,
-    stairs: true,
+    id: 'useStairs',
+    label: 'Allow stairs',
+    hint: 'Ramps whole-block steps instead of leaving them square.',
   },
 };
+
+/** The smallest height change the chosen blocks can express. */
+export function heightResolution(useSlabs) {
+  return useSlabs ? 0.5 : 1;
+}
 
 /**
  * The shape of the curve the deck follows between its two ends.
@@ -113,23 +110,41 @@ export function gcd(a, b) {
 /**
  * Turn one row into the real world blocks it represents.
  * This is the only place rows get expanded, and it happens on demand.
+ *
+ * A row is a column, not a single block: the top of it is the deck, and
+ * anything below is packing added to close a hole where the curve dropped
+ * faster than the blocks could follow. Packing is always full blocks — it is
+ * structure, not surface.
  */
 export function rowBlocks(model, row) {
   const blocks = [];
   const majorIsX = model.majorAxis === 'x';
+  const bottom = row.bottom ?? row.y;
   for (let m = row.minorStart; m <= row.minorEnd; m++) {
-    blocks.push({
-      x: majorIsX ? row.major : m,
-      y: row.y,
-      z: majorIsX ? m : row.major,
-      kind: row.kind,
-      facing: row.facing || null,
-    });
+    for (let y = bottom; y <= row.y; y++) {
+      blocks.push({
+        x: majorIsX ? row.major : m,
+        y,
+        z: majorIsX ? m : row.major,
+        kind: y === row.y ? row.kind : 'full',
+        facing: y === row.y ? row.facing || null : null,
+      });
+    }
   }
   return blocks;
 }
 
-/** How many blocks a row contains. */
+/** How wide a row is, across the deck. */
 export function rowWidth(row) {
   return row.minorEnd - row.minorStart + 1;
+}
+
+/** How tall a row's column is, including any packing beneath the deck. */
+export function rowDepth(row) {
+  return row.y - (row.bottom ?? row.y) + 1;
+}
+
+/** How many blocks a row contains in total. */
+export function rowBlockCount(row) {
+  return rowWidth(row) * rowDepth(row);
 }

@@ -48,8 +48,9 @@ export function buildInstances(model, budget = INSTANCE_BUDGET) {
     z: worldZ(first, first.minor),
   };
 
-  // Thin the bridge out rather than trying to draw a million boxes.
-  const stride = Math.max(1, Math.ceil((rows.length * model.width) / budget));
+  // Thin the bridge out rather than trying to draw a million boxes. Counted
+  // from the real block total, so a bridge with deep packing thins out sooner.
+  const stride = Math.max(1, Math.ceil(model.stats.blockCount / budget));
 
   const full = [];
   const slab = [];
@@ -82,6 +83,14 @@ export function buildInstances(model, budget = INSTANCE_BUDGET) {
       const x = worldX(row, m) - origin.x + 0.5;
       const z = worldZ(row, m) - origin.z + 0.5;
       const y = row.y - origin.y;
+
+      // Packing beneath the deck, where a hole would otherwise show through.
+      // Always whole blocks, so it goes in with the full boxes.
+      for (let fill = row.bottom ?? row.y; fill < row.y; fill++) {
+        const fy = fill - origin.y + 0.5;
+        full.push({ x, y: fy, z, colour });
+        track(x, fy, z);
+      }
 
       if (row.kind === 'full') {
         full.push({ x, y: y + 0.5, z, colour });

@@ -1,6 +1,6 @@
 /** Everything you can change about the bridge. */
 
-import { BLOCK_MODES, CURVE_TYPES } from '../engine/model.js';
+import { BLOCK_OPTIONS, CURVE_TYPES } from '../engine/model.js';
 
 function CoordRow({ label, value, onChange }) {
   return (
@@ -20,8 +20,9 @@ function CoordRow({ label, value, onChange }) {
   );
 }
 
-export default function ControlPanel({ params, setParams }) {
+export default function ControlPanel({ params, setParams, sagLimit }) {
   const set = (patch) => setParams({ ...params, ...patch });
+  const overLimit = sagLimit !== null && Math.abs(params.sag) > sagLimit;
 
   return (
     <div className="panel controls">
@@ -70,6 +71,33 @@ export default function ControlPanel({ params, setParams }) {
       </section>
 
       <section>
+        <h2>Blocks</h2>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={params.useSlabs}
+            onChange={(e) => set({ useSlabs: e.target.checked })}
+          />
+          <span>
+            {BLOCK_OPTIONS.slabs.label}
+            <em>{BLOCK_OPTIONS.slabs.hint}</em>
+          </span>
+        </label>
+
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={params.useStairs}
+            onChange={(e) => set({ useStairs: e.target.checked })}
+          />
+          <span>
+            {BLOCK_OPTIONS.stairs.label}
+            <em>{BLOCK_OPTIONS.stairs.hint}</em>
+          </span>
+        </label>
+      </section>
+
+      <section>
         <h2>Sag</h2>
         <p className="help">
           Measured straight down, like a rope held at both ends. Negative droops, positive arches.
@@ -104,6 +132,26 @@ export default function ControlPanel({ params, setParams }) {
           ))}
         </div>
 
+        {sagLimit !== null && (
+          <p className={overLimit ? 'hint over-limit' : 'hint'}>
+            {sagLimit === 0 ? (
+              <>This span already climbs faster than the blocks can follow, so any sag will be stepped.</>
+            ) : overLimit ? (
+              <>
+                Past the smooth limit of <strong>±{sagLimit}</strong> for these blocks. The deck goes
+                chunky through the steep parts, which is correct for a sag this deep — not a fault.
+                {!params.useSlabs && ' Allowing slabs would halve the steps.'}
+              </>
+            ) : (
+              <>
+                Smooth up to <strong>±{sagLimit}</strong> with these blocks. Beyond that the curve drops
+                faster than {params.useSlabs ? 'half a block' : 'a block'} per step and the deck steps
+                in chunks.
+              </>
+            )}
+          </p>
+        )}
+
         <label className="field">
           <span>Curve</span>
           <select value={params.curve} onChange={(e) => set({ curve: e.target.value })}>
@@ -115,36 +163,6 @@ export default function ControlPanel({ params, setParams }) {
           </select>
         </label>
         <p className="hint">{CURVE_TYPES[params.curve]?.hint}</p>
-      </section>
-
-      <section>
-        <h2>Blocks</h2>
-        <label className="field">
-          <span>Build with</span>
-          <select value={params.blockMode} onChange={(e) => set({ blockMode: e.target.value })}>
-            {Object.values(BLOCK_MODES).map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <p className="hint">{BLOCK_MODES[params.blockMode]?.hint}</p>
-
-        <label className="field">
-          <span>Block</span>
-          <input
-            type="text"
-            value={params.block}
-            spellCheck={false}
-            onChange={(e) => set({ block: e.target.value })}
-            placeholder="stone_bricks"
-          />
-        </label>
-        <p className="hint">
-          Slab and stair names are worked out from this, so <code>stone_bricks</code> gives{' '}
-          <code>stone_brick_slab</code> and <code>stone_brick_stairs</code>.
-        </p>
       </section>
     </div>
   );

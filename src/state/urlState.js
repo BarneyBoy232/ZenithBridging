@@ -18,8 +18,8 @@ const KEYS = {
   w: ['width'],
   sag: ['sag'],
   c: ['curve'],
-  m: ['blockMode'],
-  b: ['block'],
+  sl: ['useSlabs'],
+  st: ['useStairs'],
   d: ['compensateDiagonal'],
 };
 

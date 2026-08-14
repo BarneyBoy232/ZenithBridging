@@ -9,7 +9,7 @@
  *   segment   which parts of it repeat, mirror, or run on unchanged
  */
 
-import { BridgeError, rowWidth } from './model.js';
+import { BridgeError, heightResolution, rowBlockCount, rowWidth } from './model.js';
 import { planPath } from './path.js';
 import { applyWidth } from './width.js';
 import { deckLevels } from './curve.js';
@@ -22,14 +22,13 @@ export const DEFAULT_PARAMS = {
   width: 3,
   sag: -4,
   curve: 'catenary',
-  blockMode: 'slabs',
+  useSlabs: true,
+  useStairs: false,
   compensateDiagonal: false,
-  block: 'stone_bricks',
 };
 
 function validate(params) {
-  const coords = [params.start, params.end];
-  for (const c of coords) {
+  for (const c of [params.start, params.end]) {
     for (const axis of ['x', 'y', 'z']) {
       if (!Number.isFinite(c[axis])) {
         throw new BridgeError('All six coordinates need to be numbers.');
@@ -44,10 +43,75 @@ function validate(params) {
   }
 }
 
-export function buildBridge(userParams) {
+function normalise(userParams) {
   const params = { ...DEFAULT_PARAMS, ...userParams };
   params.start = { ...DEFAULT_PARAMS.start, ...userParams?.start };
   params.end = { ...DEFAULT_PARAMS.end, ...userParams?.end };
+  return params;
+}
+
+/**
+ * The steepest height change between neighbouring rows, measured on the
+ * blocks rather than on the smooth curve.
+ *
+ * Measuring the curve instead would under-report: a curve dropping 1.2 blocks
+ * per step still rounds to a tidy one-block staircase, so the deck is not
+ * chunky yet. What matters is what actually gets built.
+ */
+function steepestStepFor(path, params, sag) {
+  const levels = deckLevels(
+    path.cells,
+    params.start.y,
+    params.end.y,
+    sag,
+    params.curve,
+    path.horizontalSpan
+  );
+  return quantise(
+    levels,
+    { useSlabs: params.useSlabs, useStairs: params.useStairs },
+    path.majorAxis,
+    path.stepMajor
+  ).steepestStep;
+}
+
+/**
+ * The deepest sag this bridge can hold without any step being too big for the
+ * blocks to express.
+ *
+ * Past this point the curve is dropping faster than half a block per step (or
+ * a whole block, without slabs), so slabs stop helping and the deck goes
+ * chunky. That is not a failure — a steep bridge genuinely is steppy — but it
+ * is worth knowing where the line is, so the app draws it.
+ *
+ * Found by halving rather than by formula, because the answer depends on the
+ * curve shape, the span and the height difference between the two ends all at
+ * once.
+ */
+export function smoothSagLimit(userParams) {
+  const params = normalise(userParams);
+  validate(params);
+  const path = planPath(params.start, params.end);
+  const resolution = heightResolution(params.useSlabs);
+
+  // Even with no sag at all, a steep climb between the two ends can already
+  // out-run the blocks. Then there is no sag that stays smooth.
+  if (steepestStepFor(path, params, 0) > resolution) return 0;
+
+  let ok = 0;
+  let tooMuch = Math.max(8, path.horizontalSpan);
+  for (let i = 0; i < 40; i++) {
+    const mid = (ok + tooMuch) / 2;
+    if (steepestStepFor(path, params, mid) <= resolution) ok = mid;
+    else tooMuch = mid;
+  }
+  // Round down, so the number shown is one you can actually dial in and still
+  // be under the limit rather than a hair over it.
+  return Math.floor(ok * 10) / 10;
+}
+
+export function buildBridge(userParams) {
+  const params = normalise(userParams);
   validate(params);
 
   const path = planPath(params.start, params.end);
@@ -60,12 +124,13 @@ export function buildBridge(userParams) {
     params.curve,
     path.horizontalSpan
   );
-  const { rows: heights, snapped, unsmoothedSteps, travel } = quantise(
+  const quantised = quantise(
     levels,
-    params.blockMode,
+    { useSlabs: params.useSlabs, useStairs: params.useStairs },
     path.majorAxis,
     path.stepMajor
   );
+  const heights = quantised.rows;
 
   // Merge the footprint and the height into the final rows.
   const rows = widened.cells.map((cell, i) => ({
@@ -76,10 +141,11 @@ export function buildBridge(userParams) {
     minorStart: cell.minorStart,
     minorEnd: cell.minorEnd,
     y: heights[i].y,
+    bottom: heights[i].bottom,
     kind: heights[i].kind,
     facing: heights[i].facing,
     exactLevel: levels[i],
-    snappedLevel: snapped[i],
+    snappedLevel: quantised.snapped[i],
   }));
 
   const segments = analyseSegments(widened.cells, heights);
@@ -88,13 +154,17 @@ export function buildBridge(userParams) {
   // instant no matter how long the bridge is.
   const counts = { full: 0, slab: 0, stair: 0 };
   let blockCount = 0;
+  let packingBlocks = 0;
   let minY = Infinity;
   let maxY = -Infinity;
   for (const row of rows) {
     const w = rowWidth(row);
-    counts[row.kind] += w;
-    blockCount += w;
-    if (row.y < minY) minY = row.y;
+    const total = rowBlockCount(row);
+    counts[row.kind] += w; // the deck surface
+    counts.full += total - w; // packing beneath it is always full blocks
+    packingBlocks += total - w;
+    blockCount += total;
+    if (row.bottom < minY) minY = row.bottom;
     if (row.y > maxY) maxY = row.y;
   }
 
@@ -114,39 +184,49 @@ export function buildBridge(userParams) {
     }
   }
 
+  const warnings = [];
+  if (quantised.steepestStep > quantised.resolution) {
+    warnings.push(
+      `The curve drops faster than the blocks can follow — the steepest step is ` +
+        `${quantised.steepestStep} blocks where ${quantised.resolution} is the finest available. ` +
+        `The deck goes chunky through the steep parts, which is expected on a sag this deep.`
+    );
+  }
+  if (packingBlocks > 0) {
+    warnings.push(
+      `${packingBlocks.toLocaleString()} extra block${packingBlocks === 1 ? '' : 's'} were added ` +
+        `underneath to close gaps where the deck stepped down more than one block. Without them ` +
+        `you could see straight through the bridge.`
+    );
+  }
+
   return {
     params,
     majorAxis: path.majorAxis,
     minorAxis: path.minorAxis,
     stepMajor: path.stepMajor,
     stepMinor: path.stepMinor,
-    travel,
+    travel: quantised.travel,
     width: widened.width,
     rows,
     segments,
-    warnings: unsmoothedSteps
-      ? [
-          `${unsmoothedSteps} step${unsmoothedSteps === 1 ? '' : 's'} rise more than one block at ` +
-            `once, which a single stair cannot ramp. Those rows stay full blocks. ` +
-            `A longer bridge or a smaller sag will smooth them out.`,
-        ]
-      : [],
+    warnings,
     stats: {
       rowCount: rows.length,
       blockCount,
       counts,
+      packingBlocks,
       width: widened.width,
+      resolution: quantised.resolution,
+      steepestStep: quantised.steepestStep,
       horizontalSpan: Math.round(path.horizontalSpan * 100) / 100,
       trueLength: Math.round(Math.hypot(path.horizontalSpan, dy) * 100) / 100,
       slopePercent: path.horizontalSpan ? Math.round((dy / path.horizontalSpan) * 1000) / 10 : 0,
       minY,
       maxY,
       heightRange: maxY - minY,
-      /** Vertical distance from the straight line to the curve, at its worst. */
       peakDeviation: Math.round(peakDeviation * 100) / 100,
-      /** Where along the bridge that happens, 0 at the start and 1 at the end. */
       peakDeviationAt: Math.round(peakDeviationAt * 1000) / 1000,
-      /** The lowest deck block on the whole bridge, and where it sits. */
       lowestRow: rows.reduce((lowest, r) => (r.y < lowest.y ? r : lowest), rows[0]).i,
     },
   };

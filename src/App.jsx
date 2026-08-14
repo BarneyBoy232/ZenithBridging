@@ -1,9 +1,9 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
-import { buildBridge } from './engine/build.js';
+import { buildBridge, smoothSagLimit } from './engine/build.js';
 import { queryToParams, writeQuery } from './state/urlState.js';
 import ControlPanel from './components/ControlPanel.jsx';
 import Logo from './components/Logo.jsx';
-import PlanView from './components/PlanView.jsx';
+import PlanView, { PLANES } from './components/PlanView.jsx';
 import SummaryPanel from './components/SummaryPanel.jsx';
 import './App.css';
 
@@ -13,14 +13,14 @@ import './App.css';
 const Preview3D = lazy(() => import('./components/Preview3D.jsx'));
 
 const VIEWS = [
-  { id: 'plan', label: 'Plan' },
-  { id: '3d', label: '3D' },
+  ...Object.values(PLANES).map((p) => ({ id: p.id, label: p.label, flat: true })),
+  { id: '3d', label: '3D', flat: false },
 ];
 
 export default function App() {
   // Settings come from the address bar, so a link restores an exact bridge.
   const [params, setParams] = useState(() => queryToParams(location.search));
-  const [view, setView] = useState('plan');
+  const [view, setView] = useState('top');
 
   useEffect(() => {
     writeQuery(params);
@@ -36,6 +36,17 @@ export default function App() {
     }
   }, [params]);
 
+  // How deep the sag can go before the blocks stop being able to follow it.
+  const sagLimit = useMemo(() => {
+    try {
+      return smoothSagLimit(params);
+    } catch {
+      return null;
+    }
+  }, [params]);
+
+  const active = VIEWS.find((v) => v.id === view);
+
   return (
     <div className="app">
       <header className="app-header">
@@ -49,15 +60,15 @@ export default function App() {
       </header>
 
       <main className="app-body">
-        <ControlPanel params={params} setParams={setParams} />
+        <ControlPanel params={params} setParams={setParams} sagLimit={sagLimit} />
 
         <div className="stage">
           {model ? (
             <>
               {/* Only the active view is mounted — a 3D scene left running in
                   the background costs frames for nothing. */}
-              {view === 'plan' ? (
-                <PlanView model={model} />
+              {active.flat ? (
+                <PlanView key={view} model={model} plane={view} />
               ) : (
                 <Suspense fallback={<div className="empty-state">Loading the 3D view…</div>}>
                   <Preview3D model={model} />
