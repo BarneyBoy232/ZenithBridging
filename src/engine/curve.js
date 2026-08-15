@@ -151,44 +151,58 @@ export function deckLevels(
   const profile = make(chordLength, 0, depth);
 
   const STEPS = 2048;
-
-  // Rotating pushes the curve sideways as well as down, and on a near-vertical
-  // span that sideways push can exceed the whole horizontal run — the curve
-  // folds back over itself and stops being a function of position at all. A
-  // bridge cannot do that: each column has one height. So work out the most
-  // rotation this geometry can take before it folds, and go no further.
-  const offsets = new Float64Array(STEPS + 1);
-  for (let i = 0; i <= STEPS; i++) offsets[i] = -direction * profile(i / STEPS);
-
-  const alongPerStep = (chordLength * cos) / STEPS;
-  let scale = 1;
-  for (let i = 0; i < STEPS; i++) {
-    const sideways = (offsets[i + 1] - offsets[i]) * sin;
-    if (sideways >= 0) continue; // pushing forward, never folds
-    scale = Math.min(scale, alongPerStep / -sideways);
-  }
-  // Only back off if a fold was actually threatened. Applying the safety
-  // margin regardless would quietly shave every rotated sag, including the
-  // level spans where rotating changes nothing at all.
-  if (scale < 1) scale *= 0.98;
-  if (report) report.rotationScale = scale;
-
   const xs = new Float64Array(STEPS + 1);
   const ys = new Float64Array(STEPS + 1);
+
   for (let i = 0; i <= STEPS; i++) {
     const u = i / STEPS;
-    const out = offsets[i] * scale;
+    // Positive pushes the curve out along the downhill normal of the line.
+    // Its size IS the distance you would walk at right angles from the line
+    // to reach the curve, which is what the sag setting means here.
+    const out = -direction * profile(u);
     xs[i] = u * chordLength * cos + out * sin;
     ys[i] = u * chordLength * sin - out * cos;
   }
+
+  // Rotating pushes the curve sideways as well as down, and on a steep span
+  // near the ends that sideways push can briefly outrun the forward progress
+  // — the curve doubles back, and a column would need two heights at once.
+  //
+  // Only a short stretch near an end ever does this, so shrinking the whole
+  // sag to avoid it would be wildly disproportionate: it would quietly hand
+  // back 18 blocks of sag when 40 were asked for. Instead the doubling-back
+  // is flattened out, which builds as a short vertical section near that end
+  // and leaves the depth you asked for completely intact.
+  let flattened = 0;
+  for (let i = 1; i <= STEPS; i++) {
+    const held = Math.min(span, Math.max(xs[i], xs[i - 1]));
+    if (held !== xs[i]) flattened++;
+    xs[i] = held;
+  }
+  // The far anchor has to be exactly where it was asked for.
+  xs[STEPS] = span;
+  ys[STEPS] = rise;
+  if (report) report.flattenedFraction = flattened / STEPS;
 
   // Rotating shifts points sideways, so a row's height is no longer simply
   // the curve at the same fraction along. Read the height off at the row's
   // real horizontal position instead.
   let cursor = 0;
   return cells.map((cell) => {
+    // The two ends are fixed points, not something to look up. Reading them
+    // off the samples goes wrong when a flattened stretch reaches an anchor:
+    // the far-side rule that is right in the middle of the bridge would put
+    // the first row at the bottom of a vertical drop instead of at its start.
+    if (cell.t <= 0) return startY;
+    if (cell.t >= 1) return startY + rise;
+
     const targetX = cell.t * span;
-    while (cursor < STEPS - 1 && xs[cursor + 1] < targetX) cursor++;
+    // Step past every sample sharing this position, so a flattened stretch is
+    // read from the far side of its vertical drop rather than the near side.
+    // Stopping on the near side would leave the far anchor at the wrong height.
+    while (cursor < STEPS && xs[cursor + 1] <= targetX) cursor++;
+    if (cursor >= STEPS) return startY + ys[STEPS];
+
     const x0 = xs[cursor];
     const x1 = xs[cursor + 1];
     const blend = x1 === x0 ? 0 : (targetX - x0) / (x1 - x0);

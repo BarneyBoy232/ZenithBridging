@@ -196,20 +196,28 @@ export function buildBridge(userParams) {
     }
   }
 
+  // What the sag actually came out as, measured square to the line between
+  // the ends. That is the number the square-to-the-deck setting is holding to.
+  const chordCos = path.horizontalSpan / Math.hypot(path.horizontalSpan, dy);
+  const achievedSquare = Math.round(Math.abs(peakDeviation * chordCos) * 100) / 100;
+
   const warnings = [];
+  if (curveReport.flattenedFraction > 0.005) {
+    const short = achievedSquare < Math.abs(params.sag) - 0.5;
+    warnings.push(
+      `Tipping the sag this far over on a span this steep makes the curve double back near one end, ` +
+        `which no deck can do. That stretch is flattened into a vertical section instead. ` +
+        (short
+          ? `It also means the sag cannot reach the full ${Math.abs(params.sag)} square to the line — ` +
+            `it gets to ${achievedSquare}. A shallower sag, or a longer span, will reach it.`
+          : `The sag still reaches the full ${achievedSquare} blocks square to the line.`)
+    );
+  }
   if (quantised.steepestStep > quantised.resolution) {
     warnings.push(
       `The curve drops faster than the blocks can follow — the steepest step is ` +
         `${quantised.steepestStep} blocks where ${quantised.resolution} is the finest available. ` +
         `The deck goes chunky through the steep parts, which is expected on a sag this deep.`
-    );
-  }
-  if (curveReport.rotationScale !== undefined && curveReport.rotationScale < 0.99) {
-    warnings.push(
-      `This span is too steep to tip the sag that far over. Rotating it any further would fold the ` +
-        `curve back on itself, so it has been eased to ` +
-        `${Math.round(curveReport.rotationScale * 100)}% of what you asked for. A shallower sag, or ` +
-        `the plain hanging chain, will hold the full amount.`
     );
   }
   if (packingBlocks > 0) {
@@ -268,10 +276,7 @@ export function buildBridge(userParams) {
        * On a sloped bridge this is the smaller of the two numbers, and it is
        * the one the square-to-the-deck setting is actually holding to.
        */
-      perpendicularDeviation:
-        Math.round(
-          peakDeviation * (path.horizontalSpan / Math.hypot(path.horizontalSpan, dy)) * 100
-        ) / 100,
+      perpendicularDeviation: achievedSquare,
       lowestRow: rows.reduce((lowest, r) => (r.y < lowest.y ? r : lowest), rows[0]).i,
     },
   };

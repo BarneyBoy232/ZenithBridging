@@ -1019,6 +1019,31 @@ heading('15. Under the limit it is ALL slabs; over it, no holes anywhere');
   check('and never produces a height that is not a number', !everFolded);
 
   // Easing must only happen when a fold was genuinely threatened.
+  // The whole meaning of this mode: set it to 40 and you can walk 40 blocks
+  // square to the straight line before you reach the deck. That has to hold
+  // whatever the slope, not just on gentle ones.
+  let worstShortfall = 0;
+  for (const [s, r] of [[60, 0], [100, 20], [80, 40], [60, 56], [120, 90]]) {
+    const cosSlope = s / Math.hypot(s, r);
+    for (const g of [-5, -10, -25, -40]) {
+      const m = buildBridge({
+        start: { x: 0, y: 64, z: 0 },
+        end: { x: s, y: 64 + r, z: 0 },
+        width: 1,
+        sag: g,
+        curve: 'hanging',
+        useSlabs: false,
+      });
+      const squareDrop = Math.min(...m.rows.map((row) => row.exactLevel - (64 + r * row.t))) * cosSlope;
+      worstShortfall = Math.max(worstShortfall, Math.abs(squareDrop - g));
+    }
+  }
+  check(
+    'the sag setting IS the distance square to the line, on every slope',
+    worstShortfall < 0.05,
+    `worst shortfall ${worstShortfall.toFixed(3)} blocks`
+  );
+
   const levelRot = buildBridge({
     start: { x: 0, y: 64, z: 0 },
     end: { x: 60, y: 64, z: 0 },
@@ -1028,10 +1053,24 @@ heading('15. Under the limit it is ALL slabs; over it, no holes anywhere');
     useSlabs: false,
   });
   check(
-    'a level span is never eased, because rotating it changes nothing',
+    'a level span never needs flattening, because rotating it changes nothing',
     Math.abs(Math.min(...levelRot.rows.map((r) => r.exactLevel)) - 54) < 0.02 &&
-      levelRot.warnings.every((w) => !w.includes('eased')),
+      levelRot.warnings.every((w) => !w.includes('double back')),
     `${Math.min(...levelRot.rows.map((r) => r.exactLevel))}`
+  );
+
+  // Flattening must be a last resort, not something a normal bridge trips.
+  const gentleRot = buildBridge({
+    start: { x: 0, y: 64, z: 0 },
+    end: { x: 100, y: 84, z: 0 },
+    width: 1,
+    sag: -40,
+    curve: 'hanging',
+    useSlabs: false,
+  });
+  check(
+    'a gentle slope takes even a deep rotated sag without flattening',
+    gentleRot.warnings.every((w) => !w.includes('double back'))
   );
 
   const folded = buildBridge({
@@ -1043,8 +1082,12 @@ heading('15. Under the limit it is ALL slabs; over it, no holes anywhere');
     useSlabs: false,
   });
   check(
-    'an impossible rotation is eased back and says so',
-    folded.warnings.some((w) => w.includes('eased'))
+    'a genuinely impossible rotation is flattened and says so',
+    folded.warnings.some((w) => w.includes('double back'))
+  );
+  check(
+    'and it owns up to falling short rather than claiming the full sag',
+    folded.warnings.some((w) => w.includes('cannot reach the full'))
   );
 
   console.log(`        limit ${limit}: ${under.stats.counts.slab} slabs and 0 full blocks`);
