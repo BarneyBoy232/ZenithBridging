@@ -152,22 +152,6 @@ export default function ControlPanel({ params, setParams, sagLimit }) {
           </p>
         )}
 
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={params.perpendicularSag}
-            onChange={(e) => set({ perpendicularSag: e.target.checked })}
-          />
-          <span>
-            Sag square to the deck
-            <em>
-              Off, the sag hangs straight down like a real rope. On, it is solved as though both ends
-              were level and then tilted with the bridge — symmetric, deepest halfway. No difference
-              when the two ends are the same height.
-            </em>
-          </span>
-        </label>
-
         <label className="field">
           <span>Curve</span>
           <select value={params.curve} onChange={(e) => set({ curve: e.target.value })}>

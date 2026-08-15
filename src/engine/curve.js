@@ -108,7 +108,16 @@ const PROFILES = {
  * @param {number} span  horizontal distance between the two ends, in blocks
  * @returns {number[]} one height per row, in block levels
  */
-export function deckLevels(cells, startY, endY, sag, curveType, span, perpendicular = false) {
+export function deckLevels(
+  cells,
+  startY,
+  endY,
+  sag,
+  curveType,
+  span,
+  perpendicular = false,
+  report = null
+) {
   const make = PROFILES[curveType];
   if (!make) throw new BridgeError(`Unknown curve type "${curveType}".`);
 
@@ -124,17 +133,65 @@ export function deckLevels(cells, startY, endY, sag, curveType, span, perpendicu
     return cells.map((cell) => startY + rise * cell.t + direction * profile(cell.t));
   }
 
-  // Square to the deck instead. The curve is solved as though the two ends
-  // were level — so it comes out symmetric, deepest at the halfway mark — and
-  // then tilted along with the bridge. Think of sagging a flat bridge and
-  // then lifting one end: the sag tilts with it rather than staying upright.
+  // Square to the deck instead: pretend the ground runs parallel to the
+  // bridge, sag it as though it were flat, then tilt the whole thing back.
+  // Gravity plays no part — the sag belongs to the deck, not to the world.
   //
-  // The requested depth is the distance measured at right angles to the line
-  // between the ends. Turning that into a straight-down offset means dividing
-  // by the cosine of the slope, which is span over the true diagonal length.
-  const diagonal = Math.hypot(span, rise);
-  const stretch = span === 0 ? 1 : diagonal / span;
-  const profile = make(span, 0, depth * stretch);
+  // This has to be a real rotation, not a vertical stretch. Stretching keeps
+  // every block directly above where it started and only changes its height,
+  // which leaves the sag pointing straight down and merely deeper. Rotating
+  // moves the curve sideways as well, which is what tips the bulge over to
+  // lie along the sloped line instead of hanging beneath it.
+  const chordLength = Math.hypot(span, rise);
+  const cos = span / chordLength;
+  const sin = rise / chordLength;
 
-  return cells.map((cell) => startY + rise * cell.t + direction * profile(cell.t));
+  // Solved for a level span as long as the sloped line, so the deepest point
+  // is exactly the requested distance out at right angles from that line.
+  const profile = make(chordLength, 0, depth);
+
+  const STEPS = 2048;
+
+  // Rotating pushes the curve sideways as well as down, and on a near-vertical
+  // span that sideways push can exceed the whole horizontal run — the curve
+  // folds back over itself and stops being a function of position at all. A
+  // bridge cannot do that: each column has one height. So work out the most
+  // rotation this geometry can take before it folds, and go no further.
+  const offsets = new Float64Array(STEPS + 1);
+  for (let i = 0; i <= STEPS; i++) offsets[i] = -direction * profile(i / STEPS);
+
+  const alongPerStep = (chordLength * cos) / STEPS;
+  let scale = 1;
+  for (let i = 0; i < STEPS; i++) {
+    const sideways = (offsets[i + 1] - offsets[i]) * sin;
+    if (sideways >= 0) continue; // pushing forward, never folds
+    scale = Math.min(scale, alongPerStep / -sideways);
+  }
+  // Only back off if a fold was actually threatened. Applying the safety
+  // margin regardless would quietly shave every rotated sag, including the
+  // level spans where rotating changes nothing at all.
+  if (scale < 1) scale *= 0.98;
+  if (report) report.rotationScale = scale;
+
+  const xs = new Float64Array(STEPS + 1);
+  const ys = new Float64Array(STEPS + 1);
+  for (let i = 0; i <= STEPS; i++) {
+    const u = i / STEPS;
+    const out = offsets[i] * scale;
+    xs[i] = u * chordLength * cos + out * sin;
+    ys[i] = u * chordLength * sin - out * cos;
+  }
+
+  // Rotating shifts points sideways, so a row's height is no longer simply
+  // the curve at the same fraction along. Read the height off at the row's
+  // real horizontal position instead.
+  let cursor = 0;
+  return cells.map((cell) => {
+    const targetX = cell.t * span;
+    while (cursor < STEPS - 1 && xs[cursor + 1] < targetX) cursor++;
+    const x0 = xs[cursor];
+    const x1 = xs[cursor + 1];
+    const blend = x1 === x0 ? 0 : (targetX - x0) / (x1 - x0);
+    return startY + ys[cursor] + (ys[cursor + 1] - ys[cursor]) * blend;
+  });
 }

@@ -9,7 +9,14 @@
  *   segment   which parts of it repeat, mirror, or run on unchanged
  */
 
-import { BridgeError, heightResolution, rowBlockCount, rowBlocks, rowWidth } from './model.js';
+import {
+  BridgeError,
+  curveSettings,
+  heightResolution,
+  rowBlockCount,
+  rowBlocks,
+  rowWidth,
+} from './model.js';
 import { planPath } from './path.js';
 import { applyWidth } from './width.js';
 import { deckLevels } from './curve.js';
@@ -24,7 +31,6 @@ export const DEFAULT_PARAMS = {
   curve: 'catenary',
   useSlabs: true,
   useStairs: false,
-  perpendicularSag: false,
   compensateDiagonal: false,
 };
 
@@ -65,9 +71,9 @@ function steepestStepFor(path, params, sag) {
     params.start.y,
     params.end.y,
     sag,
-    params.curve,
+    curveSettings(params.curve).shape,
     path.horizontalSpan,
-    params.perpendicularSag
+    curveSettings(params.curve).perpendicular
   );
   return quantise(
     levels,
@@ -118,14 +124,16 @@ export function buildBridge(userParams) {
 
   const path = planPath(params.start, params.end);
   const widened = applyWidth(path, params.width, params.compensateDiagonal);
+  const curveReport = {};
   const levels = deckLevels(
     widened.cells,
     params.start.y,
     params.end.y,
     params.sag,
-    params.curve,
+    curveSettings(params.curve).shape,
     path.horizontalSpan,
-    params.perpendicularSag
+    curveSettings(params.curve).perpendicular,
+    curveReport
   );
   const quantised = quantise(
     levels,
@@ -196,6 +204,14 @@ export function buildBridge(userParams) {
         `The deck goes chunky through the steep parts, which is expected on a sag this deep.`
     );
   }
+  if (curveReport.rotationScale !== undefined && curveReport.rotationScale < 0.99) {
+    warnings.push(
+      `This span is too steep to tip the sag that far over. Rotating it any further would fold the ` +
+        `curve back on itself, so it has been eased to ` +
+        `${Math.round(curveReport.rotationScale * 100)}% of what you asked for. A shallower sag, or ` +
+        `the plain hanging chain, will hold the full amount.`
+    );
+  }
   if (packingBlocks > 0) {
     warnings.push(
       `${packingBlocks.toLocaleString()} extra block${packingBlocks === 1 ? '' : 's'} were added ` +
@@ -245,6 +261,17 @@ export function buildBridge(userParams) {
       heightRange: maxY - minY,
       peakDeviation: Math.round(peakDeviation * 100) / 100,
       peakDeviationAt: Math.round(peakDeviationAt * 1000) / 1000,
+      /** Whether the sag was measured square to the slope rather than downward. */
+      squareToDeck: curveSettings(params.curve).perpendicular,
+      /**
+       * The same bulge measured at right angles to the line between the ends.
+       * On a sloped bridge this is the smaller of the two numbers, and it is
+       * the one the square-to-the-deck setting is actually holding to.
+       */
+      perpendicularDeviation:
+        Math.round(
+          peakDeviation * (path.horizontalSpan / Math.hypot(path.horizontalSpan, dy)) * 100
+        ) / 100,
       lowestRow: rows.reduce((lowest, r) => (r.y < lowest.y ? r : lowest), rows[0]).i,
     },
   };

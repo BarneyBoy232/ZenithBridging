@@ -51,25 +51,51 @@ export function heightResolution(useSlabs) {
 
 /**
  * The shape of the curve the deck follows between its two ends.
- * All three measure sag straight down, the way a rope hangs.
+ *
+ * `shape` is the maths; `perpendicular` is what the sag is measured against.
+ * Off, it hangs straight down and gravity decides — on an uneven span the low
+ * point drifts toward the lower end. On, the sag is measured at right angles
+ * to the line between the ends, as though the ground ran parallel to the
+ * bridge, so the bulge lies along the slope instead of hanging beneath it.
+ *
+ * On a level span the two are identical, because there the line between the
+ * ends already is horizontal.
  */
 export const CURVE_TYPES = {
   catenary: {
     id: 'catenary',
+    shape: 'catenary',
+    perpendicular: false,
     label: 'Hanging chain',
-    hint: 'What a real rope does. Flat through the middle, steep at the ends. On an uneven span the low point drifts toward the lower side, as it should.',
+    hint: 'What a real rope does. Flat through the middle, steep at the ends, and on an uneven span the low point drifts toward the lower side.',
+  },
+  hanging: {
+    id: 'hanging',
+    shape: 'catenary',
+    perpendicular: true,
+    label: 'Hanging chain, square to the deck',
+    hint: 'The same chain, but measured square to the slope rather than straight down — as if the ground ran parallel to the bridge. Symmetric, and the bulge follows the line rather than pooling at the bottom.',
   },
   parabola: {
     id: 'parabola',
+    shape: 'parabola',
+    perpendicular: false,
     label: 'Parabola',
     hint: 'What a rope does once a deck is hung off it. Very close to a chain, and perfectly even end to end.',
   },
   arc: {
     id: 'arc',
+    shape: 'arc',
+    perpendicular: false,
     label: 'Circular arc',
     hint: 'A slice of a circle. Climbs hard off the ends and flattens across the middle — the stone bridge look.',
   },
 };
+
+/** Curve settings, tolerating an unknown or missing id. */
+export function curveSettings(id) {
+  return CURVE_TYPES[id] || CURVE_TYPES.catenary;
+}
 
 /**
  * Stair direction is stored as a compass direction meaning "the way the deck

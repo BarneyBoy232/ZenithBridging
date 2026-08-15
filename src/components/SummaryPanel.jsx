@@ -92,8 +92,16 @@ export default function SummaryPanel({ model, highlight, setHighlight }) {
           <p className="hint">
             {stats.peakDeviation < 0 ? 'Hangs' : 'Arches'}{' '}
             <strong>{Math.abs(stats.peakDeviation)} blocks</strong>{' '}
-            {stats.peakDeviation < 0 ? 'below' : 'above'} the straight line between your two points, deepest{' '}
+            {stats.peakDeviation < 0 ? 'below' : 'above'} the straight line between your two points,{' '}
+            {stats.peakDeviation < 0 ? 'deepest' : 'highest'}{' '}
             {Math.round(stats.peakDeviationAt * 100)}% of the way along.
+            {stats.squareToDeck && (
+              <>
+                {' '}
+                That is measured straight down; square to the slope, which is what you asked for, it is{' '}
+                <strong>{Math.abs(stats.perpendicularDeviation)}</strong>.
+              </>
+            )}
           </p>
         )}
 

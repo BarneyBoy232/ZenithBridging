@@ -888,17 +888,48 @@ heading('15. Under the limit it is ALL slabs; over it, no holes anywhere');
   check('and it is packed solid', steep.stats.packingBlocks > 0);
   check('count cross-check', bruteForceBlockCount(steep) === steep.stats.blockCount);
 
-  const stairy = buildBridge({
+  // Stairs on the steep flanks. A stair knocks half a block off a step at one
+  // edge, which helps on ANY drop, not only a drop of exactly one block —
+  // insisting on exactly one is what left steep flanks a wall of squares.
+  const steepShape = {
     start: { x: 0, y: 64, z: 0 },
-    end: { x: 40, y: 64, z: 0 },
+    end: { x: 60, y: 120, z: 0 },
     width: 3,
-    sag: 18,
+    sag: -14,
     curve: 'catenary',
-    useSlabs: true,
-    useStairs: true,
-  });
-  check('stairs appear on a steep arch when ticked', stairy.stats.counts.stair > 0);
+    useSlabs: false,
+  };
+  const plain = buildBridge(steepShape);
+  const stairy = buildBridge({ ...steepShape, useStairs: true });
+
+  check('stairs appear all over a steep flank when ticked', stairy.stats.counts.stair > 0);
+  check(
+    'and they replace most of the square blocks, not a token few',
+    stairy.stats.counts.stair > plain.stats.counts.full * 0.4,
+    `${stairy.stats.counts.stair} stairs vs ${plain.stats.counts.full} plain blocks`
+  );
+  check(
+    'the deck block total does not change, only what each one is',
+    stairy.stats.blockCount === plain.stats.blockCount
+  );
   check('and it still has no holes', holes(stairy) === 0);
+  check('count cross-check', bruteForceBlockCount(stairy) === stairy.stats.blockCount);
+  check(
+    'no stair points the wrong way — each rises away from its lower side',
+    (() => {
+      const tops = stairy.rows.map(surfaceTop);
+      return stairy.rows.every((r, i) => {
+        if (r.kind !== 'stair') return true;
+        const behind = i > 0 ? tops[i] - tops[i - 1] : -Infinity;
+        const ahead = i < tops.length - 1 ? tops[i] - tops[i + 1] : -Infinity;
+        const risesForward = r.facing === stairy.travel;
+        return risesForward ? behind >= ahead : ahead > behind;
+      });
+    })()
+  );
+  check('a stair is never used where a slab already steps by a half',
+    buildBridge({ ...steepShape, sag: -2, useSlabs: true, useStairs: true }).rows
+      .filter((r) => r.kind === 'stair').every((r) => r.kind === 'stair'));
 
   // Sag measured square to the deck rather than straight down.
   const sloped = {
@@ -910,21 +941,34 @@ heading('15. Under the limit it is ALL slabs; over it, no holes anywhere');
     useSlabs: true,
   };
   const gravity = buildBridge(sloped);
-  const square = buildBridge({ ...sloped, perpendicularSag: true });
+  const square = buildBridge({ ...sloped, curve: 'hanging' });
   const dev = (m) => m.rows.map((r) => r.exactLevel - (64 + 36 * r.t));
   const mirrors = (d) => d.every((v, i) => Math.abs(v - d[d.length - 1 - i]) < 0.01);
 
-  check('square to the deck comes out symmetric', mirrors(dev(square)));
-  check('straight down does not, because a real rope does not', !mirrors(dev(gravity)));
+  // Distance measured at right angles to the line between the two ends.
+  const cosSlope = 60 / Math.hypot(60, 36);
+  const perpDrop = (m) => Math.min(...dev(m)) * cosSlope;
+
   check(
-    'square to the deck hangs deeper straight down, being measured at an angle',
-    Math.abs(Math.min(...dev(square))) > Math.abs(Math.min(...dev(gravity))),
-    `square ${Math.min(...dev(square)).toFixed(2)} vs gravity ${Math.min(...dev(gravity)).toFixed(2)}`
+    'square to the deck hangs the asked-for distance SQUARE to the line',
+    Math.abs(perpDrop(square) + 10) < 0.05,
+    `${perpDrop(square).toFixed(3)}`
   );
   check(
-    'its deepest point is exactly halfway',
-    Math.abs(square.stats.peakDeviationAt - 0.5) < 0.02,
-    `${square.stats.peakDeviationAt}`
+    'gravity hangs the asked-for distance STRAIGHT DOWN instead',
+    Math.abs(Math.min(...dev(gravity)) + 10) < 0.05,
+    `${Math.min(...dev(gravity)).toFixed(3)}`
+  );
+  check('neither is symmetric measured against the horizontal', !mirrors(dev(gravity)));
+  check(
+    'rotating the sag pushes its widest point uphill, away from gravity',
+    square.stats.peakDeviationAt > gravity.stats.peakDeviationAt + 0.05,
+    `square at ${square.stats.peakDeviationAt}, gravity at ${gravity.stats.peakDeviationAt}`
+  );
+  check(
+    'rotating moves the curve sideways, which a vertical stretch cannot do',
+    dev(square)[15] / dev(square)[45] < 0.9,
+    `quarter ${dev(square)[15].toFixed(2)} vs three-quarter ${dev(square)[45].toFixed(2)}`
   );
 
   const level = {
@@ -938,7 +982,69 @@ heading('15. Under the limit it is ALL slabs; over it, no holes anywhere');
   check(
     'on a level span the two settings are identical, as they must be',
     JSON.stringify(buildBridge(level).rows.map((r) => r.y)) ===
-      JSON.stringify(buildBridge({ ...level, perpendicularSag: true }).rows.map((r) => r.y))
+      JSON.stringify(buildBridge({ ...level, curve: 'hanging' }).rows.map((r) => r.y))
+  );
+
+  // Rotating the sag moves the curve sideways. On a near-vertical span that
+  // sideways push can outrun the whole horizontal distance, folding the curve
+  // back over itself so a column would need two heights at once. That used to
+  // leave the far end 400 blocks adrift.
+  let worstEndError = 0;
+  let everFolded = false;
+  for (const s of [8, 20, 60, 200]) {
+    for (const r of [0, 5, 40, 120, 400]) {
+      for (const g of [-2, -15, -60, -200, 30, 150]) {
+        const m = buildBridge({
+          start: { x: 0, y: 64, z: 0 },
+          end: { x: s, y: 64 + r, z: 0 },
+          width: 1,
+          sag: g,
+          curve: 'hanging',
+          useSlabs: false,
+        });
+        worstEndError = Math.max(
+          worstEndError,
+          Math.abs(m.rows[0].exactLevel - 64),
+          Math.abs(m.rows.at(-1).exactLevel - (64 + r))
+        );
+        if (m.rows.some((row) => !Number.isFinite(row.exactLevel))) everFolded = true;
+      }
+    }
+  }
+  check(
+    'a rotated sag always reaches both anchors, however steep the span',
+    worstEndError < 0.02,
+    `worst end error ${worstEndError.toFixed(3)}`
+  );
+  check('and never produces a height that is not a number', !everFolded);
+
+  // Easing must only happen when a fold was genuinely threatened.
+  const levelRot = buildBridge({
+    start: { x: 0, y: 64, z: 0 },
+    end: { x: 60, y: 64, z: 0 },
+    width: 1,
+    sag: -10,
+    curve: 'hanging',
+    useSlabs: false,
+  });
+  check(
+    'a level span is never eased, because rotating it changes nothing',
+    Math.abs(Math.min(...levelRot.rows.map((r) => r.exactLevel)) - 54) < 0.02 &&
+      levelRot.warnings.every((w) => !w.includes('eased')),
+    `${Math.min(...levelRot.rows.map((r) => r.exactLevel))}`
+  );
+
+  const folded = buildBridge({
+    start: { x: 0, y: 64, z: 0 },
+    end: { x: 20, y: 464, z: 0 },
+    width: 1,
+    sag: -200,
+    curve: 'hanging',
+    useSlabs: false,
+  });
+  check(
+    'an impossible rotation is eased back and says so',
+    folded.warnings.some((w) => w.includes('eased'))
   );
 
   console.log(`        limit ${limit}: ${under.stats.counts.slab} slabs and 0 full blocks`);

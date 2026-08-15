@@ -60,40 +60,7 @@ export function quantise(levels, options, majorAxis, stepMajor) {
     return { y: level, kind: 'full', half: null, facing: null };
   });
 
-  // Second pass: soften whole-block steps into stairs.
-  let unsmoothedSteps = 0;
-  if (useStairs) {
-    for (let i = 1; i < rows.length; i++) {
-      const change = snapped[i] - snapped[i - 1];
-      if (change === 0) continue;
-
-      // A stair spans exactly one block of height, so it can only ramp a
-      // whole-block step between two whole levels. Anything else is left as
-      // it is rather than faked.
-      const wholeStep =
-        Math.abs(change) === 1 && Number.isInteger(snapped[i]) && Number.isInteger(snapped[i - 1]);
-      if (!wholeStep) {
-        if (Math.abs(change) > 1) unsmoothedSteps++;
-        continue;
-      }
-
-      // The stair always occupies the higher of the two cells, and always sits
-      // on the row belonging to that higher level. Climbing, that is the row
-      // you are stepping onto; descending, it is the row you are stepping off.
-      const rising = change > 0;
-      const cell = Math.max(snapped[i], snapped[i - 1]);
-      const facing = rising ? travel : oppositeDirection(travel);
-
-      // A peak only one row wide would want to be both ramps at once. It can
-      // only be one, so the climb keeps it and the descent shuffles forward.
-      let target = rising ? i : i - 1;
-      if (!rising && rows[target].kind === 'stair') target = i;
-
-      rows[target] = { y: cell, kind: 'stair', half: null, facing };
-    }
-  }
-
-  // Third pass: close every hole in the deck.
+  // Second pass: close every hole in the deck.
   //
   // The subtle case, and the one that made a steep arch look like a comb:
   // two columns can END and BEGIN on consecutive levels and still not be
@@ -136,6 +103,40 @@ export function quantise(levels, options, majorAxis, stepMajor) {
     filledBlocks += rows[i].y - rows[i].bottom;
   }
 
+  // Third pass: ramp every step that a stair can help with.
+  //
+  // A stair's surface runs from half height on one side to full height on the
+  // other, so putting one on top of a column knocks half a block off the step
+  // at that edge. That is worth doing on ANY drop, not just a drop of exactly
+  // one block — which is what the earlier version wrongly insisted on, and
+  // why the steep flanks stayed a wall of square blocks.
+  //
+  // Slabs are left alone: a stretch gentle enough for slabs is already
+  // stepping half a block at a time, and a stair cannot beat that.
+  let stairCount = 0;
+  if (useStairs) {
+    const tops = rows.map(surfaceTop);
+    for (let i = 0; i < rows.length; i++) {
+      if (rows[i].kind !== 'full') continue;
+
+      const behind = i > 0 ? tops[i] - tops[i - 1] : -Infinity;
+      const ahead = i < rows.length - 1 ? tops[i] - tops[i + 1] : -Infinity;
+      // Nothing to ramp if this row is the low point of its neighbourhood.
+      if (behind <= 0 && ahead <= 0) continue;
+
+      // Ramp down toward whichever side drops further. A stair rises away
+      // from its low side, so the facing follows the bigger drop.
+      const dropsBehind = behind >= ahead;
+      rows[i] = {
+        ...rows[i],
+        kind: 'stair',
+        half: null,
+        facing: dropsBehind ? travel : oppositeDirection(travel),
+      };
+      stairCount++;
+    }
+  }
+
   // How far apart neighbouring rows get. This is what decides whether the
   // chosen blocks were fine enough for the curve being asked for.
   let steepestStep = 0;
@@ -143,7 +144,7 @@ export function quantise(levels, options, majorAxis, stepMajor) {
     steepestStep = Math.max(steepestStep, Math.abs(snapped[i] - snapped[i - 1]));
   }
 
-  return { rows, snapped, unsmoothedSteps, filledBlocks, steepestStep, resolution, travel };
+  return { rows, snapped, stairCount, filledBlocks, steepestStep, resolution, travel };
 }
 
 /** The height you would stand on, for a given row. Used for analysis only. */
