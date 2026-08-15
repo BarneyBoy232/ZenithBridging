@@ -1,5 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { buildBridge, smoothSagLimit } from './engine/build.js';
+import { squareSagCeiling } from './engine/curve.js';
+import { curveSettings } from './engine/model.js';
 import { buildTrack, resolveBox } from './engine/splineTrack.js';
 import { queryToParams, writeQuery } from './state/urlState.js';
 import ControlPanel from './components/ControlPanel.jsx';
@@ -61,6 +63,16 @@ export default function App() {
     }
   }, [tool, state.bridge]);
 
+  // How far a rotated sag can be tipped onto this slope before the curve
+  // would double back. Only meaningful for the square-to-the-deck curve.
+  const squareCeiling = useMemo(() => {
+    if (tool !== 'bridge' || !curveSettings(state.bridge.curve).perpendicular) return null;
+    const { start, end } = state.bridge;
+    const span = Math.hypot(end.x - start.x, end.z - start.z);
+    const ceiling = squareSagCeiling(span, end.y - start.y, curveSettings(state.bridge.curve).shape);
+    return Number.isFinite(ceiling) ? Math.floor(ceiling * 10) / 10 : null;
+  }, [tool, state.bridge]);
+
   const box = useMemo(() => {
     try {
       return resolveBox(state.track);
@@ -98,7 +110,12 @@ export default function App() {
 
       <main className="app-body">
         {tool === 'bridge' ? (
-          <ControlPanel params={params} setParams={setParams} sagLimit={sagLimit} />
+          <ControlPanel
+            params={params}
+            setParams={setParams}
+            sagLimit={sagLimit}
+            squareCeiling={squareCeiling}
+          />
         ) : (
           <TrackPanel params={params} setParams={setParams} box={box} />
         )}
@@ -122,7 +139,14 @@ export default function App() {
                 />
               ) : (
                 <Suspense fallback={<div className="empty-state">Loading the 3D view…</div>}>
-                  <Preview3D model={model} highlight={highlight} />
+                  <Preview3D
+                    model={model}
+                    highlight={highlight}
+                    points={tool === 'track' ? state.track.points : null}
+                    onPointsChange={
+                      tool === 'track' ? (points) => setParams({ ...state.track, points }) : null
+                    }
+                  />
                 </Suspense>
               )}
               <div className="view-tabs">

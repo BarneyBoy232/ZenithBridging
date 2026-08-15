@@ -15,6 +15,7 @@ import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { buildInstances } from '../engine/instances.js';
+import SplineHandles3D from './SplineHandles3D.jsx';
 
 function Boxes({ items, size }) {
   const ref = useRef(null);
@@ -128,8 +129,8 @@ function FrameBridge({ bounds, frameKey }) {
   return null;
 }
 
-function Scene({ instances, frameKey }) {
-  const { full, slab, stepX, stepZ, bounds, chord } = instances;
+function Scene({ instances, frameKey, points, onPointsChange, adding }) {
+  const { full, slab, stepX, stepZ, bounds, chord, origin } = instances;
 
   return (
     <>
@@ -145,25 +146,45 @@ function Scene({ instances, frameKey }) {
 
       {chord && <Chord points={chord} />}
 
+      {points && onPointsChange && (
+        <SplineHandles3D
+          points={points}
+          origin={origin}
+          onPointsChange={onPointsChange}
+          adding={adding}
+        />
+      )}
+
       <OrbitControls makeDefault enableDamping dampingFactor={0.12} />
       <FrameBridge bounds={bounds} frameKey={frameKey} />
     </>
   );
 }
 
-export default function Preview3D({ model, highlight = null }) {
+export default function Preview3D({
+  model,
+  highlight = null,
+  points = null,
+  onPointsChange = null,
+}) {
   const wrapRef = useRef(null);
   const [ready, setReady] = useState(false);
   const [started, setStarted] = useState(false);
   const [stalled, setStalled] = useState(false);
+  const [adding, setAdding] = useState(false);
   const instances = useMemo(() => buildInstances(model, undefined, highlight), [model, highlight]);
 
   // What counts as "a different build" for the purpose of re-aiming the
   // camera: where it runs and how wide it is. Not how it curves.
+  // Only the two ends and the width count. Bending the middle must NOT re-aim
+  // the camera — you are dragging a point while watching it, and having the
+  // view jump under your cursor every frame makes editing impossible.
   const frameKey =
     model.kind === 'bridge'
       ? `${JSON.stringify(model.params.start)}|${JSON.stringify(model.params.end)}|${model.width}`
-      : `${model.params.points.map((p) => `${p.x},${p.y},${p.z}`).join(';')}|${model.stats.width}`;
+      : `${JSON.stringify(model.params.points[0])}|${JSON.stringify(
+          model.params.points.at(-1)
+        )}|${model.stats.width}`;
 
   // The 3D canvas only starts up once its container has a real size. If the
   // tab is in the background when this mounts, that can take a moment — so we
@@ -209,7 +230,13 @@ export default function Preview3D({ model, highlight = null }) {
           dpr={[1, 2]}
           onCreated={() => setStarted(true)}
         >
-          <Scene instances={instances} frameKey={frameKey} />
+          <Scene
+            instances={instances}
+            frameKey={frameKey}
+            points={points}
+            onPointsChange={onPointsChange}
+            adding={adding}
+          />
         </Canvas>
       )}
 
@@ -224,9 +251,34 @@ export default function Preview3D({ model, highlight = null }) {
         </div>
       )}
 
+      {points && onPointsChange && (
+        <div className="plan-overlay">
+          <button
+            type="button"
+            className={adding ? 'chip active' : 'chip'}
+            onClick={() => setAdding((a) => !a)}
+          >
+            {adding ? 'Done adding' : 'Add points'}
+          </button>
+        </div>
+      )}
+
       <div className="plan-readout visible">
-        <span>Drag to orbit · scroll to zoom · right-drag to pan</span>
-        <span>The white line is the straight route, with no sag.</span>
+        {points && onPointsChange ? (
+          <>
+            <span>
+              {adding
+                ? 'Click anywhere to drop a point in — it joins the nearest stretch of the path'
+                : 'Drag a point to bend the path · hold shift to move it up and down'}
+            </span>
+            <span>Drag empty space to orbit · scroll to zoom · right-drag to pan</span>
+          </>
+        ) : (
+          <>
+            <span>Drag to orbit · scroll to zoom · right-drag to pan</span>
+            <span>The white line is the straight route, with no sag.</span>
+          </>
+        )}
       </div>
 
       {skipped > 1 && (

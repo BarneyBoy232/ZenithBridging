@@ -11,6 +11,7 @@ import { BridgeError, rowBlockCount, rowWidth } from '../src/engine/model.js';
 import { surfaceTop } from '../src/engine/quantise.js';
 import { buildInstances, INSTANCE_BUDGET, STEP_OFFSET } from '../src/engine/instances.js';
 import { buildTrack } from '../src/engine/splineTrack.js';
+import { squareSagCeiling } from '../src/engine/curve.js';
 
 let passed = 0;
 let failed = 0;
@@ -1023,8 +1024,10 @@ heading('15. Under the limit it is ALL slabs; over it, no holes anywhere');
   // square to the straight line before you reach the deck. That has to hold
   // whatever the slope, not just on gentle ones.
   let worstShortfall = 0;
+  let ceilingRespected = true;
   for (const [s, r] of [[60, 0], [100, 20], [80, 40], [60, 56], [120, 90]]) {
     const cosSlope = s / Math.hypot(s, r);
+    const ceiling = squareSagCeiling(s, r, 'catenary');
     for (const g of [-5, -10, -25, -40]) {
       const m = buildBridge({
         start: { x: 0, y: 64, z: 0 },
@@ -1034,15 +1037,37 @@ heading('15. Under the limit it is ALL slabs; over it, no holes anywhere');
         curve: 'hanging',
         useSlabs: false,
       });
-      const squareDrop = Math.min(...m.rows.map((row) => row.exactLevel - (64 + r * row.t))) * cosSlope;
-      worstShortfall = Math.max(worstShortfall, Math.abs(squareDrop - g));
+      const squareDrop =
+        Math.min(...m.rows.map((row) => row.exactLevel - (64 + r * row.t))) * cosSlope;
+
+      if (Math.abs(g) <= ceiling) {
+        // Within reach, the setting must be delivered exactly.
+        worstShortfall = Math.max(worstShortfall, Math.abs(squareDrop - g));
+      } else {
+        // Beyond reach, it must sit on the ceiling and say so — never quietly
+        // somewhere in between, and never bent into a spire to fake it.
+        if (Math.abs(Math.abs(squareDrop) - ceiling) > 0.2) ceilingRespected = false;
+        if (!m.warnings.some((w) => w.includes('too steep'))) ceilingRespected = false;
+      }
     }
   }
   check(
-    'the sag setting IS the distance square to the line, on every slope',
+    'within reach, the sag setting IS the distance square to the line',
     worstShortfall < 0.05,
     `worst shortfall ${worstShortfall.toFixed(3)} blocks`
   );
+  check('beyond reach, it sits exactly on the ceiling and says so', ceilingRespected);
+
+  // The ceiling has to fall as the span steepens, or it is not a real limit.
+  const ceilings = [[100, 20], [80, 40], [60, 56], [40, 80]].map(([s, r]) =>
+    squareSagCeiling(s, r, 'catenary')
+  );
+  check(
+    'the ceiling drops as the span gets steeper',
+    ceilings.every((c, i) => i === 0 || c < ceilings[i - 1]),
+    ceilings.map((c) => c.toFixed(1)).join(' > ')
+  );
+  check('a level span has no ceiling at all', squareSagCeiling(60, 0, 'catenary') === Infinity);
 
   const levelRot = buildBridge({
     start: { x: 0, y: 64, z: 0 },
@@ -1053,9 +1078,9 @@ heading('15. Under the limit it is ALL slabs; over it, no holes anywhere');
     useSlabs: false,
   });
   check(
-    'a level span never needs flattening, because rotating it changes nothing',
+    'a level span is never held back, because rotating it changes nothing',
     Math.abs(Math.min(...levelRot.rows.map((r) => r.exactLevel)) - 54) < 0.02 &&
-      levelRot.warnings.every((w) => !w.includes('double back')),
+      levelRot.warnings.every((w) => !w.includes('too steep')),
     `${Math.min(...levelRot.rows.map((r) => r.exactLevel))}`
   );
 
@@ -1069,8 +1094,8 @@ heading('15. Under the limit it is ALL slabs; over it, no holes anywhere');
     useSlabs: false,
   });
   check(
-    'a gentle slope takes even a deep rotated sag without flattening',
-    gentleRot.warnings.every((w) => !w.includes('double back'))
+    'a gentle slope takes even a deep rotated sag without being held back',
+    gentleRot.warnings.every((w) => !w.includes('too steep'))
   );
 
   const folded = buildBridge({
@@ -1082,12 +1107,16 @@ heading('15. Under the limit it is ALL slabs; over it, no holes anywhere');
     useSlabs: false,
   });
   check(
-    'a genuinely impossible rotation is flattened and says so',
-    folded.warnings.some((w) => w.includes('double back'))
+    'a genuinely impossible rotation is held at the ceiling and says so',
+    folded.warnings.some((w) => w.includes('too steep'))
   );
   check(
-    'and it owns up to falling short rather than claiming the full sag',
-    folded.warnings.some((w) => w.includes('cannot reach the full'))
+    'and no deck ever travels backwards to fake a sag it cannot hold',
+    (() => {
+      // Every row must sit at or beyond the previous one along the bridge.
+      const majors = folded.rows.map((r) => r.major);
+      return majors.every((v, i) => i === 0 || Math.abs(v - majors[i - 1]) === 1);
+    })()
   );
 
   console.log(`        limit ${limit}: ${under.stats.counts.slab} slabs and 0 full blocks`);

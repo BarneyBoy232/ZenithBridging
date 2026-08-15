@@ -102,6 +102,53 @@ const PROFILES = {
 };
 
 /**
+ * Would a sag of this depth, tipped onto this slope, make the curve travel
+ * backwards at any point?
+ *
+ * Along the line the curve advances `alongPerStep` each step. Rotating adds a
+ * sideways push of the change in depth times the sine of the slope. When that
+ * push is backwards and bigger than the advance, the curve doubles back.
+ * Both signs are tested so one ceiling covers sags and arches alike.
+ */
+function rotationDoublesBack(chordLength, cos, sin, make, depth, steps = 512) {
+  if (depth <= 0) return false;
+  const profile = make(chordLength, 0, depth);
+  const alongPerStep = (chordLength * cos) / steps;
+  let previous = profile(0);
+  for (let i = 1; i <= steps; i++) {
+    const current = profile(i / steps);
+    const sideways = (current - previous) * sin;
+    if (alongPerStep - Math.abs(sideways) < 0) return true;
+    previous = current;
+  }
+  return false;
+}
+
+/** The deepest sag this slope can hold without the curve doubling back. */
+function foldFreeDepth(chordLength, cos, sin, make, wanted) {
+  if (!rotationDoublesBack(chordLength, cos, sin, make, wanted)) return wanted;
+  let ok = 0;
+  let tooMuch = wanted;
+  for (let i = 0; i < 28; i++) {
+    const mid = (ok + tooMuch) / 2;
+    if (rotationDoublesBack(chordLength, cos, sin, make, mid)) tooMuch = mid;
+    else ok = mid;
+  }
+  return ok;
+}
+
+/**
+ * The deepest sag, measured square to the line between the two ends, that
+ * this span can hold. Level spans can take a lot; steep ones very little.
+ */
+export function squareSagCeiling(span, rise, curveType) {
+  const make = PROFILES[curveType] || PROFILES.catenary;
+  if (rise === 0 || span === 0) return Infinity;
+  const chordLength = Math.hypot(span, rise);
+  return foldFreeDepth(chordLength, span / chordLength, rise / chordLength, make, span * 4);
+}
+
+/**
  * The exact, unrounded height of the deck at every step. Still fractional at
  * this stage — turning these into real blocks happens in quantise.js.
  *
@@ -151,38 +198,43 @@ export function deckLevels(
   const profile = make(chordLength, 0, depth);
 
   const STEPS = 2048;
+
+  // Tipping a sag over onto a slope has a hard ceiling, and it is worth
+  // understanding rather than working around. Rotating pushes the curve
+  // sideways as well as down. Near the ends the curve is steep, so a little
+  // progress along the line comes with a lot of sideways push — and past a
+  // certain depth the sideways push wins and the curve travels BACKWARDS.
+  // A deck cannot do that: a column would need two heights at once.
+  //
+  // The ceiling drops fast as the span steepens. Level, you can sag as deep
+  // as the span is long. At 43 degrees you get about a third of that. So the
+  // honest thing is to work out the ceiling and say what it is, rather than
+  // silently shrinking the sag or bending the deck into a spire to fake it.
+  const usable = foldFreeDepth(chordLength, cos, sin, make, depth);
+  if (report) {
+    report.squareSagLimit = usable;
+    report.squareSagClamped = usable < depth - 1e-6;
+  }
+
+  const profileUsed = usable === depth ? profile : make(chordLength, 0, usable);
+
   const xs = new Float64Array(STEPS + 1);
   const ys = new Float64Array(STEPS + 1);
-
   for (let i = 0; i <= STEPS; i++) {
     const u = i / STEPS;
     // Positive pushes the curve out along the downhill normal of the line.
     // Its size IS the distance you would walk at right angles from the line
     // to reach the curve, which is what the sag setting means here.
-    const out = -direction * profile(u);
+    const out = -direction * profileUsed(u);
     xs[i] = u * chordLength * cos + out * sin;
     ys[i] = u * chordLength * sin - out * cos;
   }
-
-  // Rotating pushes the curve sideways as well as down, and on a steep span
-  // near the ends that sideways push can briefly outrun the forward progress
-  // — the curve doubles back, and a column would need two heights at once.
-  //
-  // Only a short stretch near an end ever does this, so shrinking the whole
-  // sag to avoid it would be wildly disproportionate: it would quietly hand
-  // back 18 blocks of sag when 40 were asked for. Instead the doubling-back
-  // is flattened out, which builds as a short vertical section near that end
-  // and leaves the depth you asked for completely intact.
-  let flattened = 0;
-  for (let i = 1; i <= STEPS; i++) {
-    const held = Math.min(span, Math.max(xs[i], xs[i - 1]));
-    if (held !== xs[i]) flattened++;
-    xs[i] = held;
-  }
-  // The far anchor has to be exactly where it was asked for.
+  // Held to the ceiling above, so this is already moving forward the whole
+  // way. Nudging away the last of the floating-point noise keeps the lookup
+  // below simple.
+  for (let i = 1; i <= STEPS; i++) xs[i] = Math.min(span, Math.max(xs[i], xs[i - 1]));
   xs[STEPS] = span;
   ys[STEPS] = rise;
-  if (report) report.flattenedFraction = flattened / STEPS;
 
   // Rotating shifts points sideways, so a row's height is no longer simply
   // the curve at the same fraction along. Read the height off at the row's

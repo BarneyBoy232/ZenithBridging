@@ -19,7 +19,7 @@ import {
 } from './model.js';
 import { planPath } from './path.js';
 import { applyWidth } from './width.js';
-import { deckLevels } from './curve.js';
+import { deckLevels, squareSagCeiling } from './curve.js';
 import { quantise } from './quantise.js';
 import { analyseSegments } from './segment.js';
 
@@ -202,15 +202,12 @@ export function buildBridge(userParams) {
   const achievedSquare = Math.round(Math.abs(peakDeviation * chordCos) * 100) / 100;
 
   const warnings = [];
-  if (curveReport.flattenedFraction > 0.005) {
-    const short = achievedSquare < Math.abs(params.sag) - 0.5;
+  if (curveReport.squareSagClamped) {
     warnings.push(
-      `Tipping the sag this far over on a span this steep makes the curve double back near one end, ` +
-        `which no deck can do. That stretch is flattened into a vertical section instead. ` +
-        (short
-          ? `It also means the sag cannot reach the full ${Math.abs(params.sag)} square to the line — ` +
-            `it gets to ${achievedSquare}. A shallower sag, or a longer span, will reach it.`
-          : `The sag still reaches the full ${achievedSquare} blocks square to the line.`)
+      `This span is too steep to tip a ${Math.abs(params.sag)} block sag onto it — past ` +
+        `${Math.round(curveReport.squareSagLimit * 10) / 10} the curve would start travelling ` +
+        `backwards, and a deck cannot double back on itself. It has been held at that ceiling. ` +
+        `A longer span, a smaller height difference, or the plain hanging chain will all take more.`
     );
   }
   if (quantised.steepestStep > quantised.resolution) {
@@ -277,6 +274,8 @@ export function buildBridge(userParams) {
        * the one the square-to-the-deck setting is actually holding to.
        */
       perpendicularDeviation: achievedSquare,
+      /** Deepest sag this slope can take square to the line, or null if unlimited. */
+      squareSagCeiling: curveReport.squareSagLimit ?? null,
       lowestRow: rows.reduce((lowest, r) => (r.y < lowest.y ? r : lowest), rows[0]).i,
     },
   };

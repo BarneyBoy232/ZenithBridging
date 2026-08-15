@@ -20,7 +20,7 @@ function CoordRow({ label, value, onChange }) {
   );
 }
 
-export default function ControlPanel({ params, setParams, sagLimit }) {
+export default function ControlPanel({ params, setParams, sagLimit, squareCeiling }) {
   const set = (patch) => setParams({ ...params, ...patch });
   const overLimit = sagLimit !== null && Math.abs(params.sag) > sagLimit;
 
@@ -147,6 +147,22 @@ export default function ControlPanel({ params, setParams, sagLimit }) {
                 Smooth up to <strong>±{sagLimit}</strong> with these blocks. Beyond that the curve drops
                 faster than {params.useSlabs ? 'half a block' : 'a block'} per step and the deck steps
                 in chunks.
+              </>
+            )}
+          </p>
+        )}
+
+        {squareCeiling !== null && squareCeiling !== undefined && (
+          <p className={Math.abs(params.sag) > squareCeiling ? 'hint over-limit' : 'hint'}>
+            {Math.abs(params.sag) > squareCeiling ? (
+              <>
+                This slope can only take <strong>{squareCeiling}</strong> square to the line. Tipped any
+                further the curve would travel backwards, which a deck cannot do, so it is held there.
+              </>
+            ) : (
+              <>
+                This slope can take up to <strong>{squareCeiling}</strong> square to the line. Steeper
+                spans take less, because tipping the sag over pushes the curve sideways as well as down.
               </>
             )}
           </p>
