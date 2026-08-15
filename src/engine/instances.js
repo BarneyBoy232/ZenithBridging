@@ -21,6 +21,9 @@ import { levelColour } from '../components/colour.js';
 /** Above this many boxes, blocks get skipped rather than the browser choking. */
 export const INSTANCE_BUDGET = 150000;
 
+/** What everything fades to when one material is picked out. */
+const MUTED = 'hsl(215, 12%, 26%)';
+
 /**
  * Where the raised part of a stair sits within its block, as a fraction across
  * the cell. A stair rising east has its tall side to the east.
@@ -32,7 +35,7 @@ export const STEP_OFFSET = {
   north: [0.5, 0.25],
 };
 
-export function buildInstances(model, budget = INSTANCE_BUDGET) {
+export function buildInstances(model, budget = INSTANCE_BUDGET, highlight = null) {
   const { minY, maxY } = model.stats;
 
   // Thin it out rather than trying to draw a million boxes.
@@ -69,7 +72,10 @@ export function buildInstances(model, budget = INSTANCE_BUDGET) {
     const x = block.x - origin.x + 0.5;
     const z = block.z - origin.z + 0.5;
     const y = block.y - origin.y;
-    const colour = levelColour(block.y, minY, maxY);
+    // Picking a material in the list pushes everything else into grey, so the
+    // blocks you are placing right now stand out from the ones you are not.
+    const colour =
+      highlight && block.kind !== highlight ? MUTED : levelColour(block.y, minY, maxY);
 
     if (block.kind === 'full') {
       full.push({ x, y: y + 0.5, z, colour });
@@ -77,9 +83,12 @@ export function buildInstances(model, budget = INSTANCE_BUDGET) {
       return;
     }
 
-    // Both slabs and stairs stand on a half-height base.
-    slab.push({ x, y: y + 0.25, z, colour });
-    track(x, y + 0.25, z);
+    // A top slab fills the upper half of its cell, a bottom slab the lower.
+    // Getting this wrong would put the deck half a block out exactly where
+    // the half-step ramps live.
+    const halfCentre = block.half === 'top' ? y + 0.75 : y + 0.25;
+    slab.push({ x, y: halfCentre, z, colour });
+    track(x, halfCentre, z);
 
     if (block.kind === 'stair') {
       const [ox, oz] = STEP_OFFSET[block.facing] || [0.5, 0.5];

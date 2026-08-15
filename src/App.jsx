@@ -28,6 +28,7 @@ export default function App() {
   // Settings come from the address bar, so a link restores an exact build.
   const [state, setState] = useState(() => queryToParams(location.search));
   const [view, setView] = useState('top');
+  const [highlight, setHighlight] = useState(null);
 
   useEffect(() => {
     writeQuery(state);
@@ -108,10 +109,20 @@ export default function App() {
               {/* Only the active view is mounted — a 3D scene left running in
                   the background costs frames for nothing. */}
               {active.flat ? (
-                <PlanView key={`${tool}-${view}`} model={model} plane={view} />
+                <PlanView
+                  key={`${tool}-${view}`}
+                  model={model}
+                  plane={view}
+                  highlight={highlight}
+                  points={tool === 'track' ? state.track.points : null}
+                  onPointsChange={
+                    tool === 'track' ? (points) => setParams({ ...state.track, points }) : null
+                  }
+                  box={tool === 'track' ? box : null}
+                />
               ) : (
                 <Suspense fallback={<div className="empty-state">Loading the 3D view…</div>}>
-                  <Preview3D model={model} />
+                  <Preview3D model={model} highlight={highlight} />
                 </Suspense>
               )}
               <div className="view-tabs">
@@ -135,7 +146,7 @@ export default function App() {
           )}
         </div>
 
-        {model && <SummaryPanel model={model} />}
+        {model && <SummaryPanel model={model} highlight={highlight} setHighlight={setHighlight} />}
       </main>
     </div>
   );

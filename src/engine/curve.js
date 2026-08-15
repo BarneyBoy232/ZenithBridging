@@ -108,15 +108,33 @@ const PROFILES = {
  * @param {number} span  horizontal distance between the two ends, in blocks
  * @returns {number[]} one height per row, in block levels
  */
-export function deckLevels(cells, startY, endY, sag, curveType, span) {
+export function deckLevels(cells, startY, endY, sag, curveType, span, perpendicular = false) {
   const make = PROFILES[curveType];
   if (!make) throw new BridgeError(`Unknown curve type "${curveType}".`);
 
   const rise = endY - startY;
-  // The profile is solved for the drop's size; the sign decides which way it
-  // goes. An arch is a hanging chain turned upside down.
-  const profile = make(span, rise, Math.abs(sag));
   const direction = Math.sign(sag);
+  const depth = Math.abs(sag);
+
+  if (!perpendicular) {
+    // Gravity's answer: solved for this actual sloped span, and measured
+    // straight down. On an uneven span the low point drifts toward the lower
+    // end, exactly as a real rope does.
+    const profile = make(span, rise, depth);
+    return cells.map((cell) => startY + rise * cell.t + direction * profile(cell.t));
+  }
+
+  // Square to the deck instead. The curve is solved as though the two ends
+  // were level — so it comes out symmetric, deepest at the halfway mark — and
+  // then tilted along with the bridge. Think of sagging a flat bridge and
+  // then lifting one end: the sag tilts with it rather than staying upright.
+  //
+  // The requested depth is the distance measured at right angles to the line
+  // between the ends. Turning that into a straight-down offset means dividing
+  // by the cosine of the slope, which is span over the true diagonal length.
+  const diagonal = Math.hypot(span, rise);
+  const stretch = span === 0 ? 1 : diagonal / span;
+  const profile = make(span, 0, depth * stretch);
 
   return cells.map((cell) => startY + rise * cell.t + direction * profile(cell.t));
 }

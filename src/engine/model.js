@@ -122,12 +122,14 @@ export function rowBlocks(model, row) {
   const bottom = row.bottom ?? row.y;
   for (let m = row.minorStart; m <= row.minorEnd; m++) {
     for (let y = bottom; y <= row.y; y++) {
+      const isDeck = y === row.y;
       blocks.push({
         x: majorIsX ? row.major : m,
         y,
         z: majorIsX ? m : row.major,
-        kind: y === row.y ? row.kind : 'full',
-        facing: y === row.y ? row.facing || null : null,
+        kind: isDeck ? row.kind : 'full',
+        half: isDeck ? row.half || null : null,
+        facing: isDeck ? row.facing || null : null,
       });
     }
   }

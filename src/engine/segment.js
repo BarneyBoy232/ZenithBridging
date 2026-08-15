@@ -39,6 +39,7 @@ export function findExactTile(cells, rows) {
         rows[i + p].y - rows[i].y !== shiftY ||
         rows[i + p].bottom - rows[i].bottom !== shiftY ||
         rows[i + p].kind !== rows[i].kind ||
+        rows[i + p].half !== rows[i].half ||
         rows[i + p].facing !== rows[i].facing
       ) {
         matches = false;
@@ -84,7 +85,8 @@ export function findSymmetry(cells, rows) {
   for (let i = 0; i < n; i++) {
     const j = n - 1 - i;
 
-    if (rows[i].y !== rows[j].y || rows[i].kind !== rows[j].kind) heights = false;
+    if (rows[i].y !== rows[j].y || rows[i].kind !== rows[j].kind || rows[i].half !== rows[j].half)
+      heights = false;
 
     // The exact middle row is its own mirror, so there is nothing to compare
     // its sideways position against. On a bridge that drifts an odd number of
@@ -114,6 +116,7 @@ export function runLengthRows(rows) {
       current.y === row.y &&
       current.bottom === row.bottom &&
       current.kind === row.kind &&
+      current.half === row.half &&
       current.facing === row.facing;
 
     if (same) {
@@ -127,6 +130,7 @@ export function runLengthRows(rows) {
         y: row.y,
         bottom: row.bottom,
         kind: row.kind,
+        half: row.half,
         facing: row.facing,
       };
       runs.push(current);
@@ -141,7 +145,7 @@ export function analyseSegments(cells, rows) {
   const tile = findExactTile(cells, rows);
   const symmetry = findSymmetry(cells, rows);
   const runs = runLengthRows(rows);
-  const distinctLevels = new Set(rows.map((r) => `${r.y}:${r.kind}`)).size;
+  const distinctLevels = new Set(rows.map((r) => `${r.y}:${r.kind}:${r.half ?? ''}`)).size;
 
   return {
     tile,

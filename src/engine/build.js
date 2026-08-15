@@ -24,6 +24,7 @@ export const DEFAULT_PARAMS = {
   curve: 'catenary',
   useSlabs: true,
   useStairs: false,
+  perpendicularSag: false,
   compensateDiagonal: false,
 };
 
@@ -65,7 +66,8 @@ function steepestStepFor(path, params, sag) {
     params.end.y,
     sag,
     params.curve,
-    path.horizontalSpan
+    path.horizontalSpan,
+    params.perpendicularSag
   );
   return quantise(
     levels,
@@ -122,7 +124,8 @@ export function buildBridge(userParams) {
     params.end.y,
     params.sag,
     params.curve,
-    path.horizontalSpan
+    path.horizontalSpan,
+    params.perpendicularSag
   );
   const quantised = quantise(
     levels,
@@ -143,6 +146,7 @@ export function buildBridge(userParams) {
     y: heights[i].y,
     bottom: heights[i].bottom,
     kind: heights[i].kind,
+    half: heights[i].half,
     facing: heights[i].facing,
     exactLevel: levels[i],
     snappedLevel: quantised.snapped[i],

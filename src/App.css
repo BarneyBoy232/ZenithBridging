@@ -288,6 +288,11 @@ input[type='range'] {
   cursor: grabbing;
 }
 
+.plan-view canvas.grabbing-point,
+.plan-view canvas.grabbing-point:active {
+  cursor: move;
+}
+
 .preview-3d {
   position: absolute;
   inset: 0;
@@ -470,13 +475,29 @@ input[type='range'] {
 }
 
 .materials li {
+  display: block;
+}
+
+.materials .material {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 2px 10px;
+  width: 100%;
+  text-align: left;
   background: var(--panel-2);
   border: 1px solid var(--line);
   border-radius: 7px;
   padding: 8px 11px;
+  cursor: pointer;
+}
+
+.materials .material:hover {
+  border-color: var(--accent);
+}
+
+.materials .material.picked {
+  border-color: var(--accent);
+  background: var(--accent-dim);
 }
 
 .materials code {

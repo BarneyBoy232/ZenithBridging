@@ -7,7 +7,7 @@
  */
 
 import { buildBridge, smoothSagLimit } from '../src/engine/build.js';
-import { BridgeError, rowBlockCount } from '../src/engine/model.js';
+import { BridgeError, rowBlockCount, rowWidth } from '../src/engine/model.js';
 import { surfaceTop } from '../src/engine/quantise.js';
 import { buildInstances, INSTANCE_BUDGET, STEP_OFFSET } from '../src/engine/instances.js';
 import { buildTrack } from '../src/engine/splineTrack.js';
@@ -49,7 +49,7 @@ heading('1. Axis-aligned, no sag  (0,64,0) -> (0,64,20), width 3');
   check('63 blocks', m.stats.blockCount === 63, `got ${m.stats.blockCount}`);
   check('all at y=64', m.rows.every((r) => r.y === 64));
   check('all full blocks', m.rows.every((r) => r.kind === 'full'));
-  check('deck spans z, 3 wide', m.rows.every((r) => rowBlockCount(r) === 3));
+  check('deck spans z, 3 wide', m.rows.every((r) => rowWidth(r) === 3));
   check('no sideways drift', new Set(m.rows.map((r) => r.minorStart)).size === 1);
   check('exact tile found', !!m.segments.tile, JSON.stringify(m.segments.tile));
   check('tile is 1 row x 20', m.segments.tile?.length === 1 && m.segments.tile?.repeats === 20);
@@ -190,7 +190,7 @@ heading('6. Sloped ends  (0,64,0) -> (30,80,12), width 4, sag -3');
   check('climbs overall', m.rows.at(-1).y > m.rows[0].y);
   check('sag pulls the middle below the straight line', m.stats.peakDeviation < 0, `${m.stats.peakDeviation}`);
   check('not symmetric (ends differ in height)', m.segments.symmetric === false);
-  check('4 blocks per row', m.rows.every((r) => rowBlockCount(r) === 4));
+  check('deck is 4 wide', m.rows.every((r) => rowWidth(r) === 4));
   check('count cross-check', bruteForceBlockCount(m) === m.stats.blockCount);
 }
 
@@ -526,14 +526,27 @@ heading('12. 3D preview builds the right boxes in the right places');
 // -------------------------------------------------- no holes, and the sag cap
 heading('13. The deck is never full of holes');
 {
-  /** Two neighbouring columns leave a hole if neither reaches the other. */
+  /**
+   * Two neighbouring columns must OVERLAP, not merely meet.
+   *
+   * This is the check that was wrong first time round, and the mistake is
+   * worth keeping written down: a block at y=68 and a block at y=69 in the
+   * next column look adjacent, but they only touch at their corner, and you
+   * can see daylight straight through a corner. A steep arch built that way
+   * comes out looking like a comb. Slabs are the exception — a top slab and
+   * the bottom slab above it are two halves of one boundary and do seal.
+   */
   const holes = (m) => {
+    const span = (r) => {
+      const low = r.kind === 'slab' && r.half === 'top' ? r.y + 0.5 : r.y;
+      const high = r.kind === 'slab' && r.half === 'bottom' ? r.y + 0.5 : r.y + 1;
+      return [Math.min(low, r.bottom), high];
+    };
     let count = 0;
     for (let i = 1; i < m.rows.length; i++) {
-      const a = m.rows[i - 1];
-      const b = m.rows[i];
-      const apart = Math.max(b.bottom - a.y, a.bottom - b.y);
-      if (apart > 1) count++;
+      const [aLow, aHigh] = span(m.rows[i - 1]);
+      const [bLow, bHigh] = span(m.rows[i]);
+      if (aLow > bHigh || bLow > aHigh) count++;
     }
     return count;
   };
@@ -802,6 +815,133 @@ heading('14. Curved paths follow the spline and stay solid');
     `        ${t.stats.blockCount} blocks over ${t.stats.trueLength} blocks of curve, ` +
       `box ${t.stats.boxSize.x}x${t.stats.boxSize.y}x${t.stats.boxSize.z}`
   );
+}
+
+// ------------------------------------ all slabs, solid flanks, tilted sag
+heading('15. Under the limit it is ALL slabs; over it, no holes anywhere');
+{
+  /**
+   * Two neighbouring columns must OVERLAP, not merely meet.
+   *
+   * This is the check that was wrong first time round, and the mistake is
+   * worth keeping written down: a block at y=68 and a block at y=69 in the
+   * next column look adjacent, but they only touch at their corner, and you
+   * can see daylight straight through a corner. A steep arch built that way
+   * comes out looking like a comb.
+   */
+  const span = (r) => {
+    const low = r.kind === 'slab' && r.half === 'top' ? r.y + 0.5 : r.y;
+    const high = r.kind === 'slab' && r.half === 'bottom' ? r.y + 0.5 : r.y + 1;
+    return [Math.min(low, r.bottom), high];
+  };
+  const holes = (m) => {
+    let n = 0;
+    for (let i = 1; i < m.rows.length; i++) {
+      const [aL, aH] = span(m.rows[i - 1]);
+      const [bL, bH] = span(m.rows[i]);
+      if (aL > bH || bL > aH) n++;
+    }
+    return n;
+  };
+
+  const shape = {
+    start: { x: 0, y: 64, z: 0 },
+    end: { x: 80, y: 64, z: 0 },
+    width: 3,
+    curve: 'catenary',
+    useSlabs: true,
+  };
+  const limit = smoothSagLimit(shape);
+  const under = buildBridge({ ...shape, sag: -limit });
+
+  check(
+    'under the limit EVERY deck block is a slab',
+    under.stats.counts.full === 0,
+    `${under.stats.counts.full} full blocks slipped in`
+  );
+  check('nothing but slabs, start to finish', under.stats.counts.slab === under.stats.blockCount);
+  check(
+    'using both halves, which is what makes half-block steps possible',
+    under.rows.some((r) => r.half === 'top') && under.rows.some((r) => r.half === 'bottom')
+  );
+  check('with no packing needed', under.stats.packingBlocks === 0);
+  check('and no holes', holes(under) === 0);
+
+  let biggest = 0;
+  for (let i = 1; i < under.rows.length; i++) {
+    biggest = Math.max(biggest, Math.abs(surfaceTop(under.rows[i]) - surfaceTop(under.rows[i - 1])));
+  }
+  check('every step really is half a block or less', biggest <= 0.5, `biggest ${biggest}`);
+
+  // The arch that came out looking like a comb.
+  const steep = buildBridge({
+    start: { x: 0, y: 64, z: 0 },
+    end: { x: 40, y: 64, z: 0 },
+    width: 3,
+    sag: 30,
+    curve: 'catenary',
+    useSlabs: true,
+  });
+  check('a wildly oversagged arch has no holes at all', holes(steep) === 0, `${holes(steep)}`);
+  check('slabs give way to full blocks on the steep flanks', steep.stats.counts.full > 0);
+  check('but survive where it flattens off on top', steep.stats.counts.slab > 0);
+  check('and it is packed solid', steep.stats.packingBlocks > 0);
+  check('count cross-check', bruteForceBlockCount(steep) === steep.stats.blockCount);
+
+  const stairy = buildBridge({
+    start: { x: 0, y: 64, z: 0 },
+    end: { x: 40, y: 64, z: 0 },
+    width: 3,
+    sag: 18,
+    curve: 'catenary',
+    useSlabs: true,
+    useStairs: true,
+  });
+  check('stairs appear on a steep arch when ticked', stairy.stats.counts.stair > 0);
+  check('and it still has no holes', holes(stairy) === 0);
+
+  // Sag measured square to the deck rather than straight down.
+  const sloped = {
+    start: { x: 0, y: 64, z: 0 },
+    end: { x: 60, y: 100, z: 0 },
+    width: 3,
+    sag: -10,
+    curve: 'catenary',
+    useSlabs: true,
+  };
+  const gravity = buildBridge(sloped);
+  const square = buildBridge({ ...sloped, perpendicularSag: true });
+  const dev = (m) => m.rows.map((r) => r.exactLevel - (64 + 36 * r.t));
+  const mirrors = (d) => d.every((v, i) => Math.abs(v - d[d.length - 1 - i]) < 0.01);
+
+  check('square to the deck comes out symmetric', mirrors(dev(square)));
+  check('straight down does not, because a real rope does not', !mirrors(dev(gravity)));
+  check(
+    'square to the deck hangs deeper straight down, being measured at an angle',
+    Math.abs(Math.min(...dev(square))) > Math.abs(Math.min(...dev(gravity))),
+    `square ${Math.min(...dev(square)).toFixed(2)} vs gravity ${Math.min(...dev(gravity)).toFixed(2)}`
+  );
+  check(
+    'its deepest point is exactly halfway',
+    Math.abs(square.stats.peakDeviationAt - 0.5) < 0.02,
+    `${square.stats.peakDeviationAt}`
+  );
+
+  const level = {
+    start: { x: 0, y: 64, z: 0 },
+    end: { x: 60, y: 64, z: 0 },
+    width: 3,
+    sag: -10,
+    curve: 'catenary',
+    useSlabs: true,
+  };
+  check(
+    'on a level span the two settings are identical, as they must be',
+    JSON.stringify(buildBridge(level).rows.map((r) => r.y)) ===
+      JSON.stringify(buildBridge({ ...level, perpendicularSag: true }).rows.map((r) => r.y))
+  );
+
+  console.log(`        limit ${limit}: ${under.stats.counts.slab} slabs and 0 full blocks`);
 }
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

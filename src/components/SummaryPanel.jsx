@@ -62,7 +62,7 @@ function Shortcut({ model }) {
   );
 }
 
-export default function SummaryPanel({ model }) {
+export default function SummaryPanel({ model, highlight, setHighlight }) {
   const { stats } = model;
   const isBridge = model.kind === 'bridge';
 
@@ -116,15 +116,24 @@ export default function SummaryPanel({ model }) {
         <ul className="materials">
           {MATERIALS.filter((m) => stats.counts[m.key] > 0).map((m) => (
             <li key={m.key}>
-              <code>{m.label}</code>
-              <span>{stats.counts[m.key].toLocaleString()}</span>
-              <em>{stacks(stats.counts[m.key])}</em>
+              <button
+                type="button"
+                className={highlight === m.key ? 'material picked' : 'material'}
+                onClick={() => setHighlight(highlight === m.key ? null : m.key)}
+                aria-pressed={highlight === m.key}
+                title="Pick this out in the views"
+              >
+                <code>{m.label}</code>
+                <span>{stats.counts[m.key].toLocaleString()}</span>
+                <em>{stacks(stats.counts[m.key])}</em>
+              </button>
             </li>
           ))}
         </ul>
         <p className="hint">
-          Build it from whatever you like — the shape is the same in any material. Slabs and stairs have to
-          match whatever you use for the deck.
+          {highlight
+            ? 'Everything else is greyed out in the views. Click again to show it all.'
+            : 'Click a material to pick it out in the views and grey the rest, so you can see exactly where each one goes.'}
         </p>
       </section>
 

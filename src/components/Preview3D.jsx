@@ -151,12 +151,12 @@ function Scene({ instances, frameKey }) {
   );
 }
 
-export default function Preview3D({ model }) {
+export default function Preview3D({ model, highlight = null }) {
   const wrapRef = useRef(null);
   const [ready, setReady] = useState(false);
   const [started, setStarted] = useState(false);
   const [stalled, setStalled] = useState(false);
-  const instances = useMemo(() => buildInstances(model), [model]);
+  const instances = useMemo(() => buildInstances(model, undefined, highlight), [model, highlight]);
 
   // What counts as "a different build" for the purpose of re-aiming the
   // camera: where it runs and how wide it is. Not how it curves.
